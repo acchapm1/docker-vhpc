@@ -1,0 +1,167 @@
+# Steps to Run Rocky Linux 10.1 vHPC Cluster
+
+## Prerequisites Installation
+
+### Step 1: Install Docker
+# macOS:
+brew install --cask docker
+# Then open Docker Desktop from Applications
+
+# Linux (Ubuntu/Debian):
+curl -fsSL https://get.docker.com | sh
+sudo usermod -aG docker $USER
+# Log out and back in for group changes to take effect
+
+# Linux (RHEL/CentOS/Rocky):
+sudo dnf install -y docker
+sudo systemctl start docker
+sudo systemctl enable docker
+sudo usermod -aG docker $USER
+
+### Step 2: Verify Docker is Running
+docker --version
+docker run hello-world
+
+### Step 3: Install Just (Task Runner)
+# macOS:
+brew install just
+
+# Linux (using cargo):
+cargo install just
+
+# Linux (using package manager):
+# Ubuntu/Debian - add repository first
+sudo add-apt-repository ppa:just/just
+sudo apt update
+sudo apt install just
+
+# Or download from: https://github.com/casey/just/releases
+
+### Step 4: Verify Just Installation
+just --version
+
+### Step 5: Install Ansible (Optional - for cluster configuration)
+# macOS:
+brew install ansible
+
+# Linux:
+sudo dnf install -y ansible    # RHEL/CentOS/Rocky
+sudo apt install -y ansible    # Ubuntu/Debian
+
+### Step 6: Verify Ansible Installation
+ansible --version
+
+### Step 7: Install Ansible Docker Collection
+cd hpc-rocky10
+just install-collections
+
+## SSH Key Setup (Required)
+
+### Step 8: Generate SSH Key (if you don't have one)
+ssh-keygen -t ed25519 -f ~/.ssh/id_vhpc -C "vhpc_cluster"
+# Press Enter for no passphrase (or set one if preferred)
+
+### Step 9: Verify SSH Key Exists
+ls -la ~/.ssh/id_vhpc*
+
+## Build and Start Cluster
+
+### Step 10: View Available Commands
+just --list
+
+### Step 12: Build Docker Images
+just build
+# This takes 5-10 minutes on first build
+
+### Step 13: Start Cluster Containers
+just up
+
+### Step 14: Verify Containers are Running
+just status
+# Should show: lci-head-01, lci-compute-01, lci-compute-02, lci-storage-01
+
+### Step 15: Copy SSH Key to Containers
+just copy-ssh-key
+# Uses ~/.ssh/id_vhpc.pub by default, or specify: PUBKEY=~/.ssh/id_ed25519.pub just copy-ssh-key
+# Note: You may be prompted for the rocky user password (Sp@rky26) once during key copy
+
+## Connect to Cluster
+
+### Step 16: SSH into Head Node
+# From your host machine:
+just ssh rocky
+# Or manually:
+ssh rocky@localhost -p 2222
+
+# Password for rocky user: Sp@rky26
+
+### Step 17: Elevate to Root (Inside Head Node)
+sudo -i
+# No password needed - rocky user is in wheel group with NOPASSWD
+
+### Step 18: SSH to Other Nodes (as root from head node)
+ssh root@compute-01
+ssh root@compute-02
+ssh root@storage-01
+# No password needed - keys are pre-configured
+
+## Verify Cluster
+
+### Step 19: Check Hostname and Network
+hostname
+# Should show: head-01
+
+ping compute-01
+ping storage-01
+
+### Step 20: Check Installed Software
+which tmux nvim vim wget
+# All should be available
+
+## Common Tasks
+
+### View Logs
+just logs          # All containers
+just logs head     # Head node only
+
+### Execute Commands in Container
+just exec "hostname"
+just exec "dnf list installed"
+
+### Stop Cluster
+just down
+
+### Clean Everything (Images, Volumes, Networks)
+just clean
+
+### Rebuild and Restart
+just build && just up && just copy-ssh-key
+
+## Quick Start (All-in-One)
+just setup
+# Equivalent to: just build && just up && just copy-ssh-key && just status
+
+## User Credentials
+# rocky user password: Sp@rky26 (only needed for initial SSH login)
+# root password: root
+# sudo from rocky: no password required (wheel group with NOPASSWD)
+
+## Troubleshooting
+
+### SSH Connection Refused
+# Ensure containers are running
+docker ps
+
+# Check SSH is running in container
+docker logs lci-head-01
+
+# Re-run SSH key setup
+just copy-ssh-key
+
+### Permission Denied
+# Use correct user: ssh rocky@localhost -p 2222
+# Password: Sp@rky26
+
+### Docker Not Running
+# Start Docker Desktop (macOS) or:
+sudo systemctl start docker  # Linux

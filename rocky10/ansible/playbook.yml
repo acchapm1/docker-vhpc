@@ -1,0 +1,43 @@
+- name: Configure HPC containers (example tasks)
+  hosts: all
+  gather_facts: no
+  vars:
+    packages:
+      - vim
+      - python3
+      - nfs-utils
+  tasks:
+    - name: Install packages
+      ansible.builtin.yum:
+        name: "{{ packages }}"
+        state: present
+      become: yes
+
+    - name: Ensure /shared exists
+      ansible.builtin.file:
+        path: /shared
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      become: yes
+
+    - name: Mount NFS share if storage reachable (idempotent)
+      ansible.builtin.shell: |
+        if ! mountpoint -q /shared; then
+          mount -t nfs {{ hostvars[inventory_hostname].ansible_host | default(inventory_hostname) }}:/export /shared || true
+        fi
+      args:
+        warn: false
+      become: yes
+      ignore_errors: yes
+
+    - name: Copy local SSH public key to root authorized_keys (for passwordless)
+      ansible.builtin.copy:
+        src: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
+        dest: /root/.ssh/authorized_keys
+        owner: root
+        group: root
+        mode: '0600'
+      become: yes
+      ignore_errors: yes

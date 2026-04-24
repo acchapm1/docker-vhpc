@@ -1,0 +1,56 @@
+# Rocky Linux 10.1 Virtual HPC Cluster
+# Use this project to create a scalable virtual HPC cluster for testing, development, and learning
+# Includes head node, compute nodes, and storage node with NFS sharing
+# All configuration is centralized in the Justfile for easy customization
+
+# Show all available just commands
+just --list
+
+# Generate docker-compose.yml and cluster-config.yml from templates with current variables
+just generate-config
+
+# Build all Docker images for head, compute, and storage nodes
+just build
+
+# Start all containers in detached mode
+just up
+
+# Copy your SSH public key to all containers for passwordless access
+just copy-ssh-key
+
+# Show status of all running cluster containers
+just status
+
+# Complete setup: generate config, build, start, copy SSH keys, and show status
+just setup
+
+# SSH into the head node as rocky user (port 2222)
+just ssh rocky
+
+# Execute a command in the head node container
+just exec "hostname"
+
+# View logs from all containers or a specific service
+just logs
+just logs head
+
+# Stop all containers and remove volumes
+just down
+
+# Clean up everything including images, volumes, and networks
+just clean
+
+# Install Ansible collection required for dynamic inventory
+just install-collections
+
+# Run Ansible playbook to configure cluster nodes
+just ansible-run
+
+# Start cluster with custom number of compute nodes (1-10)
+just up-with 4
+
+# Initialize cluster config file with commented sections for N compute nodes
+just init-cluster 5
+
+# Validate docker-compose and ansible configuration syntax
+just validate

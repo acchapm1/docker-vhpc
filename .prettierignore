@@ -1,0 +1,6 @@
+# Dependencies
+node_modules/
+
+# Generated files (contain resolved values, not templates)
+docker/docker-compose.yml
+docker/cluster-config.yml

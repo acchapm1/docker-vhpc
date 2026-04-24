@@ -1,0 +1,81 @@
+services:
+  head:
+    build: ./head
+    container_name: {{PREFIX}}-head-01
+    hostname: head-01
+    ports:
+      - "{{PORT}}:22"
+    networks:
+      hpcnet:
+        ipv4_address: {{NETWORK}}.2
+    volumes:
+      - head-etc:/etc
+      - head-var:/var/log
+    privileged: true
+    tty: true
+
+  compute1:
+    extends: compute_definition
+    container_name: {{PREFIX}}-compute-01
+    hostname: compute-01
+    networks:
+      hpcnet:
+        ipv4_address: {{NETWORK}}.3
+    mem_limit: {{COMPUTE_MEMORY}}
+    cpus: "1.0"
+    depends_on:
+      - head
+
+  compute2:
+    extends: compute_definition
+    container_name: {{PREFIX}}-compute-02
+    hostname: compute-02
+    networks:
+      hpcnet:
+        ipv4_address: {{NETWORK}}.4
+    mem_limit: {{COMPUTE_MEMORY}}
+    cpus: "1.0"
+    depends_on:
+      - head
+
+  storage:
+    build: ./storage
+    container_name: {{PREFIX}}-storage-01
+    hostname: storage-01
+    privileged: true
+    networks:
+      hpcnet:
+        ipv4_address: {{NETWORK}}.5
+    volumes:
+      - storage-data:/export
+      - storage-var:/var/log
+      - storage-backing:/data
+    depends_on:
+      - head
+
+  # Compute node definition template
+  compute_definition:
+    build: ./compute
+    volumes:
+      - compute1-etc:/etc
+      - compute1-var:/var/log
+    privileged: true
+    tty: true
+
+networks:
+  hpcnet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: {{NETWORK}}.0/24
+
+volumes:
+  head-etc:
+  head-var:
+  compute1-etc:
+  compute1-var:
+  compute2-etc:
+  compute2-var:
+  storage-data:
+  storage-var:
+  storage-backing:

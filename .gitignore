@@ -1,0 +1,16 @@
+# AI/Agent files
+AGENTS.md
+
+# Temporary/session files
+ocses
+
+# Node.js dependencies
+node_modules/
+package-lock.json
+
+# Generated files (contain resolved values from templates)
+rocky9/docker/docker-compose.yml
+rocky9/docker/cluster-config.yml
+rocky10/docker/docker-compose.yml
+rocky10/docker/cluster-config.yml
+

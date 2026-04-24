@@ -1,0 +1,223 @@
+# Rocky Linux 9.7 HPC Cluster - Justfile
+# Multi-stage Docker build with Rocky Linux 9.7
+# Requires: just, docker, docker-compose, ansible
+
+# Cluster configuration
+PORT := "2222"                    # SSH port for external access
+NETWORK := "10.0.10"            # Docker network subnet
+PREFIX := "asu"                  # Container name prefix (lci = Linux Containers Inc)
+
+# Scalability configuration
+COMPUTE_NODES := "2"              # Number of compute nodes (default: 2)
+STORAGE_NODES := "1"             # Number of storage nodes (default: 1, max: 3 for distributed storage)
+COMPUTE_MEMORY := "2g"            # Memory limit per compute node
+STORAGE_SIZE := "10g"            # Size of storage backing file
+ENABLE_MONITORING := "false"     # Include monitoring stack (prometheus/grafana)?
+
+# Derived variables (calculated from above)
+HEAD_IP := "{{NETWORK}}.2"
+COMPUTE1_IP := "{{NETWORK}}.3"
+COMPUTE2_IP := "{{NETWORK}}.4"
+STORAGE_IP := "{{NETWORK}}.5"
+
+# Outputs this message and is the same as running 'just --list'
+default:
+    @just --list
+
+# Generate docker-compose.yml from template
+# Run this whenever changing PORT, NETWORK, or PREFIX
+generate-config:
+	@echo "Generating configuration files from templates..."
+	@cd docker && \
+	PORT={{PORT}} \
+	NETWORK={{NETWORK}} \
+	PREFIX={{PREFIX}} \
+	COMPUTE_MEMORY={{COMPUTE_MEMORY}} \
+	./gen-config.sh
+
+# Build all cluster images from docker Dockerfiles
+build: generate-config
+	docker-compose -f docker/docker-compose.yml build
+
+# Start cluster with configured nodes
+up: generate-config
+	docker-compose -f docker/docker-compose.yml up -d
+
+# Stop cluster and remove all volumes (destroys data)
+down:
+	docker-compose -f docker/docker-compose.yml down --volumes --remove-orphans
+
+# Initialize cluster config with N compute nodes
+# Scales based on COMPUTENODES variable
+init-cluster n:
+	#!/bin/bash
+	set -euo pipefail
+	N="{{n}}"
+	if [ "$N" -lt 1 ] || [ "$N" -gt 10 ]; then
+		echo "Error: Node count must be between 1-10"
+		exit 1
+	fi
+	
+	CONFIG_FILE="docker/cluster-config.yml"
+	> "$CONFIG_FILE"  # Clear/Create file
+	
+	echo '# Auto-generated cluster configuration' >> "$CONFIG_FILE"
+	echo '# To use this config: docker-compose -f docker-compose.yml -f cluster-config.yml up -d' >> "$CONFIG_FILE"
+	echo '# To add more nodes: Uncomment and edit the sections below' >> "$CONFIG_FILE"
+	echo '' >> "$CONFIG_FILE"
+	echo 'version: '"'"'3.8'"'" >> "$CONFIG_FILE"
+	echo '' >> "$CONFIG_FILE"
+	echo 'services:' >> "$CONFIG_FILE"
+	
+	# Add compute nodes - generate based on number requested
+	if [ "$N" -ge 3 ]; then
+		echo '' >> "$CONFIG_FILE"
+		echo '# Additional compute nodes - uncomment to enable' >> "$CONFIG_FILE"
+		echo '' >> "$CONFIG_FILE"
+		
+		# Generate node definitions (compute03 through computeN)
+		for i in $(seq 3 $N); do
+			printf "# compute-%02d:\n" $i >> "$CONFIG_FILE"
+			printf "#   extends: compute_definition\n" >> "$CONFIG_FILE"
+			printf "#   container_name: {{PREFIX}}-compute-%02d\n" $i >> "$CONFIG_FILE"
+			printf "#   hostname: compute-%02d\n" $i >> "$CONFIG_FILE"
+			printf "#   networks:\n" >> "$CONFIG_FILE"
+			printf "#     hpcnet:\n" >> "$CONFIG_FILE"
+			printf "#       ipv4_address: {{NETWORK}}.%d\n" $((i+2)) >> "$CONFIG_FILE"
+			printf "#   mem_limit: {{COMPUTE_MEMORY}}\n" >> "$CONFIG_FILE"
+			printf "#   cpus: \"1.0\"\n" >> "$CONFIG_FILE"
+			printf "#   depends_on:\n" >> "$CONFIG_FILE"
+			printf "#     - head\n" >> "$CONFIG_FILE"
+			if [ $i -lt $N ]; then
+				echo "" >> "$CONFIG_FILE"
+			fi
+		done
+	fi
+	
+	# Add storage nodes - up to 3 for distributed storage
+	echo '' >> "$CONFIG_FILE"
+	echo '# Additional storage nodes - uncomment to enable' >> "$CONFIG_FILE"
+	echo '# Note: Requires manual NFS configuration for distributed storage' >> "$CONFIG_FILE"
+	echo '' >> "$CONFIG_FILE"
+	for i in $(seq 2 3); do
+		printf "# storage-%02d:\n" $i >> "$CONFIG_FILE"
+		printf "#   build: ./storage\n" >> "$CONFIG_FILE"
+		printf "#   container_name: {{PREFIX}}-storage-%02d\n" $i >> "$CONFIG_FILE"
+		printf "#   hostname: storage-%02d\n" $i >> "$CONFIG_FILE"
+		printf "#   privileged: true\n" >> "$CONFIG_FILE"
+		printf "#   networks:\n" >> "$CONFIG_FILE"
+		printf "#     hpcnet:\n" >> "$CONFIG_FILE"
+		printf "#       ipv4_address: {{NETWORK}}.%d\n" $((10+i)) >> "$CONFIG_FILE"
+		printf "#   volumes:\n" >> "$CONFIG_FILE"
+		printf "#     - storage-%02d-data:/export\n" $i >> "$CONFIG_FILE"
+		printf "#     - storage-%02d-var:/var/log\n" $i >> "$CONFIG_FILE"
+		printf "#   depends_on:\n" >> "$CONFIG_FILE"
+		printf "#     - head\n" >> "$CONFIG_FILE"
+		echo "" >> "$CONFIG_FILE"
+	done
+	
+	echo "Created docker/cluster-config.yml"
+	echo "Edit this file to uncomment additional nodes as needed"
+
+# Start cluster with custom node count
+# Scales based on COMPUTENODES and STORAGENODES variables
+up-with n:
+	@just init-cluster {{n}}
+	docker-compose -f docker/docker-compose.yml -f docker/cluster-config.yml up -d
+	@just status
+
+# Show cluster status
+status:
+	@echo "HPC Rocky Linux 9.7 Cluster (port {{PORT}}):"
+	@docker ps --filter "name={{PREFIX}}-"
+
+# SSH into head node
+ssh rocky:
+	ssh -o "UserKnownHostsFile=/dev/null" -o "StrictHostKeyChecking=no" rocky@localhost -p {{PORT}}
+
+# Copy SSH key for passwordless access
+copy-ssh-key:
+	#!/bin/bash
+	set -euo pipefail
+	PUB="${PUBKEY:-}"
+	if [ -z "$PUB" ]; then
+	  for k in "$HOME/.ssh/id_vhpc.pub" "$HOME/.ssh/id_ed25519.pub" "$HOME/.ssh/id_rsa.pub"; do
+	    if [ -f "$k" ]; then
+	      PUB="$k"
+	      break
+	    fi
+	  done
+	fi
+	if [ -z "$PUB" ] || [ ! -f "$PUB" ]; then
+	  echo "No public key found. Generate one with: ssh-keygen -f ~/.ssh/id_vhpc"
+	  exit 1
+	fi
+	echo "Using public key: $PUB"
+	
+	for c in $(docker ps --format "table" | sed '1d' | awk '{print $NF}' | grep -E '^{{PREFIX}}-(head|compute|storage)-'); do
+	  echo "Setting up root on $c"
+	  docker exec -i "$c" bash -lc 'mkdir -p /root/.ssh && umask 077 && cat >> /root/.ssh/authorized_keys' < "$PUB"
+	done
+	
+	for head in $(docker ps --format "table" | sed '1d' | awk '{print $NF}' | grep -E '^{{PREFIX}}-head-01$'); do
+	  docker exec "$head" bash -lc 'if [ ! -f /root/.ssh/id_ed25519 ]; then ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519 -N "" -q; fi'
+	  HEAD_PUB=$(docker exec "$head" cat /root/.ssh/id_ed25519.pub 2>/dev/null || true)
+	  if [ -n "$HEAD_PUB" ]; then
+	    for node in $(docker ps --format "table" | sed '1d' | awk '{print $NF}' | grep -E "^{{PREFIX}}-(compute|storage)-" | grep -v "$head"); do
+	      echo "Copying $head root SSH key to $node"
+	      echo "$HEAD_PUB" | docker exec -i "$node" bash -lc 'mkdir -p /root/.ssh && chmod 700 /root/.ssh && cat >> /root/.ssh/authorized_keys && chmod 600 /root/.ssh/authorized_keys'
+	    done
+	  fi
+	done
+	
+	echo ""
+	echo "Setup complete!"
+	echo "SSH to head: ssh rocky@localhost -p {{PORT}}"
+	echo "Then elevate: sudo -i  (no password required)"
+
+# Install Ansible collection for dynamic inventory
+install-collections:
+	ansible-galaxy collection install community.docker
+
+# Run Ansible playbook with optional syntax check
+ansible-run test="":
+	@if [ -n "{{test}}" ]; then \
+		ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i ansible/docker_containers.yml ansible/playbook.yml --syntax-check; \
+	else \
+		ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i ansible/docker_containers.yml ansible/playbook.yml -v; \
+	fi
+
+# Quick setup: build, start, copy keys, show status
+setup: generate-config build up copy-ssh-key status
+
+# View logs for all nodes or specific service
+logs service="":
+	@if [ -z "{{service}}" ]; then \
+		docker-compose -f docker/docker-compose.yml logs -f; \
+	else \
+		docker-compose -f docker/docker-compose.yml logs -f {{service}}; \
+	fi
+
+# Execute command in head node
+exec cmd="bash":
+	docker exec -i -t {{PREFIX}}-head-01 {{cmd}}
+
+# Clean up everything: remove containers, images, volumes, networks
+clean:
+	docker-compose -f docker/docker-compose.yml down --rmi all --volumes --remove-orphans || true
+
+# Validate configuration: check docker-compose and ansible syntax
+validate:
+	docker-compose -f docker/docker-compose.yml config
+	ansible-playbook -i ansible/docker_containers.yml ansible/playbook.yml --syntax-check
+
+# Format all markdown files to 80 character width (requires prettier)
+format-md:
+	#!/bin/bash
+	cd ..
+	if command -v npx &> /dev/null; then
+		npx prettier --write --prose-wrap always --print-width 80 "**/*.md"
+	else
+		echo "Error: npx not found. Install Node.js: https://nodejs.org/"
+		exit 1
+	fi

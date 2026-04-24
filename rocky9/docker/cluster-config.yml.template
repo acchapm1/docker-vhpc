@@ -1,0 +1,74 @@
+# Auto-generated cluster configuration
+# To use this config: docker-compose -f docker-compose.yml -f cluster-config.yml up -d
+# To add more nodes: Uncomment and edit the sections below
+
+services:
+  # Additional compute nodes - uncomment to enable
+  # Note: Adjust IP addresses based on NETWORK variable
+
+  # compute3:
+  #   extends: compute_definition
+  #   container_name: {{PREFIX}}-compute-03
+  #   hostname: compute-03
+  #   networks:
+  #     hpcnet:
+  #       ipv4_address: {{NETWORK}}.6
+  #   mem_limit: {{COMPUTE_MEMORY}}
+  #   cpus: "1.0"
+  #   depends_on:
+  #     - head
+  #
+  # compute4:
+  #   extends: compute_definition
+  #   container_name: {{PREFIX}}-compute-04
+  #   hostname: compute-04
+  #   networks:
+  #     hpcnet:
+  #       ipv4_address: {{NETWORK}}.7
+  #   mem_limit: {{COMPUTE_MEMORY}}
+  #   cpus: "1.0"
+  #   depends_on:
+  #     - head
+  #
+  # compute5:
+  #   extends: compute_definition
+  #   container_name: {{PREFIX}}-compute-05
+  #   hostname: compute-05
+  #   networks:
+  #     hpcnet:
+  #       ipv4_address: {{NETWORK}}.8
+  #   mem_limit: {{COMPUTE_MEMORY}}
+  #   cpus: "1.0"
+  #   depends_on:
+  #     - head
+
+  # Additional storage nodes - uncomment to enable
+  # Note: Requires manual NFS configuration for distributed storage (BeeGFS, Ceph, etc.)
+  
+  # storage2:
+  #   build: ./storage
+  #   container_name: {{PREFIX}}-storage-02
+  #   hostname: storage-02
+  #   privileged: true
+  #   networks:
+  #     hpcnet:
+  #       ipv4_address: {{NETWORK}}.12
+  #   volumes:
+  #     - storage2-data:/export
+  #     - storage2-var:/var/log
+  #   depends_on:
+  #     - head
+  #
+  # storage3:
+  #   build: ./storage
+  #   container_name: {{PREFIX}}-storage-03
+  #   hostname: storage-03
+  #   privileged: true
+  #   networks:
+  #     hpcnet:
+  #       ipv4_address: {{NETWORK}}.13
+  #   volumes:
+  #     - storage3-data:/export
+  #     - storage3-var:/var/log
+  #   depends_on:
+  #     - head

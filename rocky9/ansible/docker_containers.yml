@@ -1,0 +1,25 @@
+---
+# Dynamic Docker inventory for Ansible using community.docker.docker_containers
+# This will discover containers on the local Docker daemon and expose them as hosts.
+# It filters containers to include only those whose name starts with 'ms-hpc-' or 'slim-hpc-'.
+plugin: community.docker.docker_containers
+docker_host: unix:///var/run/docker.sock
+strict: false
+connection_type: ssh
+
+# Include only matching container names
+filters:
+  - include: >
+      inventory_hostname.startswith('ms-hpc-') or inventory_hostname.startswith('slim-hpc-')
+  - exclude: true
+
+# Map container name to ansible_host/port if SSH port is mapped to host (use default 22 inside container)
+compose:
+  ansible_ssh_host: ansible_ssh_host | default(docker_name[1:], true)
+  ansible_ssh_port: ansible_ssh_port | default(22, true)
+
+# Keyed groups to separate multi-stage and slim-runtime variants
+keyed_groups:
+  - prefix: variant
+    key: "docker_name[0].split('-')[0]"
+    separator: "_"
