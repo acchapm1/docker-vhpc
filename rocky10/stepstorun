@@ -52,7 +52,7 @@ sudo apt install -y ansible    # Ubuntu/Debian
 ansible --version
 
 ### Step 7: Install Ansible Docker Collection
-cd hpc-rocky10
+cd docker-vhpc/rocky10
 just install-collections
 
 ## SSH Key Setup (Required)
@@ -69,25 +69,25 @@ ls -la ~/.ssh/id_vhpc*
 ### Step 10: View Available Commands
 just --list
 
-### Step 12: Build Docker Images
+### Step 11: Build Docker Images
 just build
 # This takes 5-10 minutes on first build
 
-### Step 13: Start Cluster Containers
+### Step 12: Start Cluster Containers
 just up
 
-### Step 14: Verify Containers are Running
+### Step 13: Verify Containers are Running
 just status
 # Should show: lci-head-01, lci-compute-01, lci-compute-02, lci-storage-01
 
-### Step 15: Copy SSH Key to Containers
+### Step 14: Copy SSH Key to Containers
 just copy-ssh-key
 # Uses ~/.ssh/id_vhpc.pub by default, or specify: PUBKEY=~/.ssh/id_ed25519.pub just copy-ssh-key
 # Note: You may be prompted for the rocky user password (Sp@rky26) once during key copy
 
 ## Connect to Cluster
 
-### Step 16: SSH into Head Node
+### Step 15: SSH into Head Node
 # From your host machine:
 just ssh rocky
 # Or manually:
@@ -95,11 +95,11 @@ ssh rocky@localhost -p 2222
 
 # Password for rocky user: Sp@rky26
 
-### Step 17: Elevate to Root (Inside Head Node)
+### Step 16: Elevate to Root (Inside Head Node)
 sudo -i
 # No password needed - rocky user is in wheel group with NOPASSWD
 
-### Step 18: SSH to Other Nodes (as root from head node)
+### Step 17: SSH to Other Nodes (as root from head node)
 ssh root@compute-01
 ssh root@compute-02
 ssh root@storage-01
@@ -107,16 +107,33 @@ ssh root@storage-01
 
 ## Verify Cluster
 
-### Step 19: Check Hostname and Network
+### Step 18: Check Hostname and Network
 hostname
 # Should show: head-01
 
 ping compute-01
 ping storage-01
 
-### Step 20: Check Installed Software
+### Step 19: Check Installed Software
 which tmux nvim vim wget
 # All should be available
+
+## Scaling the Cluster
+
+### Scale Compute Nodes Only
+just up-with 5
+# 5 compute nodes + 1 storage node (default)
+
+### Scale Compute AND Storage
+just up-with 3 3
+# 3 compute nodes + 3 storage nodes
+# storage-01 runs NFS (default). storage-02..M come up bare with
+# DISABLE_NFS_AUTOSTART=1 - sshd + an empty /data scratch volume,
+# ready for you to install BeeGFS, Ceph, or another distributed FS.
+# See NAMING.md for the reserved IP range (storage-02..M at .240-.249).
+
+# After scaling, re-run copy-ssh-key to push keys to the new nodes:
+just copy-ssh-key
 
 ## Common Tasks
 
@@ -139,7 +156,7 @@ just build && just up && just copy-ssh-key
 
 ## Quick Start (All-in-One)
 just setup
-# Equivalent to: just build && just up && just copy-ssh-key && just status
+# Equivalent to: just generate-config && just build && just up && just copy-ssh-key && just status
 
 ## User Credentials
 # rocky user password: Sp@rky26 (only needed for initial SSH login)
