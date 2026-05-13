@@ -44,8 +44,16 @@ up: generate-config
 	docker-compose -f docker/docker-compose.yml up -d
 
 # Stop cluster and remove all volumes (destroys data)
+# Includes the overlay (cluster-config.yml) if present so volumes for
+# compute-03..N and storage-02..M get cleaned up too.
 down:
-	docker-compose -f docker/docker-compose.yml down --volumes --remove-orphans
+	#!/bin/bash
+	set -euo pipefail
+	if [ -s docker/cluster-config.yml ] && grep -q '^services:' docker/cluster-config.yml; then
+	  docker-compose -f docker/docker-compose.yml -f docker/cluster-config.yml down --volumes --remove-orphans
+	else
+	  docker-compose -f docker/docker-compose.yml down --volumes --remove-orphans
+	fi
 
 # Initialize cluster config with N compute nodes and M storage nodes
 # Generates a docker-compose override file adding compute-03..N and
@@ -238,10 +246,16 @@ setup: generate-config build up copy-ssh-key status
 
 # View logs for all nodes or specific service
 logs service="":
-	@if [ -z "{{service}}" ]; then \
-		docker-compose -f docker/docker-compose.yml logs -f; \
-	else \
-		docker-compose -f docker/docker-compose.yml logs -f {{service}}; \
+	#!/bin/bash
+	set -euo pipefail
+	files=(-f docker/docker-compose.yml)
+	if [ -s docker/cluster-config.yml ] && grep -q '^services:' docker/cluster-config.yml; then
+	  files+=(-f docker/cluster-config.yml)
+	fi
+	if [ -z "{{service}}" ]; then
+	  docker-compose "${files[@]}" logs -f
+	else
+	  docker-compose "${files[@]}" logs -f {{service}}
 	fi
 
 # Execute command in head node
@@ -250,11 +264,24 @@ exec cmd="bash":
 
 # Clean up everything: remove containers, images, volumes, networks
 clean:
-	docker-compose -f docker/docker-compose.yml down --rmi all --volumes --remove-orphans || true
+	#!/bin/bash
+	if [ -s docker/cluster-config.yml ] && grep -q '^services:' docker/cluster-config.yml; then
+	  docker-compose -f docker/docker-compose.yml -f docker/cluster-config.yml down --rmi all --volumes --remove-orphans || true
+	else
+	  docker-compose -f docker/docker-compose.yml down --rmi all --volumes --remove-orphans || true
+	fi
 
 # Validate configuration: check docker-compose and ansible syntax
 validate:
-	docker-compose -f docker/docker-compose.yml config
+	#!/bin/bash
+	set -euo pipefail
+	if [ -s docker/cluster-config.yml ] && grep -q '^services:' docker/cluster-config.yml; then
+	  docker-compose -f docker/docker-compose.yml -f docker/cluster-config.yml config >/dev/null
+	  echo "OK: merged compose (base + overlay)"
+	else
+	  docker-compose -f docker/docker-compose.yml config >/dev/null
+	  echo "OK: base compose"
+	fi
 	ansible-playbook -i ansible/docker_containers.yml ansible/playbook.yml --syntax-check
 
 # Format all markdown files to 80 character width (requires prettier)
