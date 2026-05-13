@@ -1,5 +1,15 @@
 #!/bin/bash
 set -e
+
+# When DISABLE_NFS_AUTOSTART=1, come up as a bare host: skip the loop-backed
+# /export setup and the NFS export. Used by storage-02..M overlays so the
+# node is ready for the user to install BeeGFS/Ceph on /data. sshd is run by
+# supervisord independently and keeps the container alive.
+if [ "${DISABLE_NFS_AUTOSTART:-0}" = "1" ]; then
+  echo "DISABLE_NFS_AUTOSTART=1: skipping NFS setup; /data is bare scratch"
+  exec tail -f /dev/null
+fi
+
 SIZE_GB=${STORAGE_SIZE_GB:-10}
 BACKING=/data/storage.img
 MOUNTPOINT=/export
