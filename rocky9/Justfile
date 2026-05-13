@@ -164,10 +164,11 @@ init-cluster n m="1":
 	fi
 	echo "$msg"
 
-# Start cluster with custom node count
-# Scales based on COMPUTENODES and STORAGENODES variables
-up-with n:
-	@just init-cluster {{n}}
+# Start cluster with custom node counts
+# Usage: just up-with N [M]  (N compute nodes, M storage nodes)
+# M defaults to STORAGE_NODES if omitted.
+up-with n_compute n_storage=STORAGE_NODES:
+	@just init-cluster {{n_compute}} {{n_storage}}
 	docker-compose -f docker/docker-compose.yml -f docker/cluster-config.yml up -d
 	@just status
 
