@@ -29,7 +29,9 @@ prefix and using zero-padded numbers.
 
 ### Scalable Naming
 
-When you scale the cluster, the naming continues sequentially:
+When you scale the cluster with `just up-with N M`, the naming continues
+sequentially. Compute and storage live in separate IP ranges so they can
+grow independently without collision.
 
 | Additional Compute | Container Name   | Hostname     | IP Address |
 | ------------------ | ---------------- | ------------ | ---------- |
@@ -37,12 +39,27 @@ When you scale the cluster, the naming continues sequentially:
 | Compute 4          | `lci-compute-04` | `compute-04` | 10.0.10.7  |
 | Compute 5          | `lci-compute-05` | `compute-05` | 10.0.10.8  |
 | ...                | ...              | ...          | ...        |
-| Compute 10         | `lci-compute-10` | `compute-10` | 10.0.10.11 |
+| Compute 10         | `lci-compute-10` | `compute-10` | 10.0.10.13 |
 
-| Additional Storage | Container Name   | Hostname     | IP Address |
-| ------------------ | ---------------- | ------------ | ---------- |
-| Storage 2          | `lci-storage-02` | `storage-02` | 10.0.10.12 |
-| Storage 3          | `lci-storage-03` | `storage-03` | 10.0.10.13 |
+Compute formula: `compute-NN` for `NN >= 3` → `NETWORK.(NN+3)`. The `+3`
+offset skips over storage-01 at `NETWORK.5`.
+
+| Additional Storage | Container Name   | Hostname     | IP Address  |
+| ------------------ | ---------------- | ------------ | ----------- |
+| Storage 2          | `lci-storage-02` | `storage-02` | 10.0.10.240 |
+| Storage 3          | `lci-storage-03` | `storage-03` | 10.0.10.241 |
+| ...                | ...              | ...          | ...         |
+| Storage 10         | `lci-storage-10` | `storage-10` | 10.0.10.248 |
+
+Storage formula: `storage-NN` for `NN >= 2` → `NETWORK.(238+NN)`.
+storage-01 stays at `NETWORK.5` for backward compatibility; storage-02..M
+use the reserved `NETWORK.240-249` range so they never collide with
+compute-NN for `NN <= 10`.
+
+**Bare vs. NFS:** storage-01 runs an NFS server by default. storage-02..M
+come up with `DISABLE_NFS_AUTOSTART=1` set — sshd + an empty `/data`
+scratch volume, no NFS — ready for you to install BeeGFS, Ceph, or
+another distributed filesystem.
 
 ### Usage Examples
 

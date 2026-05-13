@@ -37,12 +37,12 @@ just ssh rocky
 
 ## Cluster Architecture
 
-| Node      | Container Name | Hostname   | IP Address  |
-| --------- | -------------- | ---------- | ----------- |
-| Head      | lci-head-01    | head-01    | 172.29.10.2 |
-| Compute 1 | lci-compute-01 | compute-01 | 172.29.10.3 |
-| Compute 2 | lci-compute-02 | compute-02 | 172.29.10.4 |
-| Storage   | lci-storage-01 | storage-01 | 172.29.10.5 |
+| Node      | Container Name | Hostname   | IP Address |
+| --------- | -------------- | ---------- | ---------- |
+| Head      | lci-head-01    | head-01    | 10.0.10.2  |
+| Compute 1 | lci-compute-01 | compute-01 | 10.0.10.3  |
+| Compute 2 | lci-compute-02 | compute-02 | 10.0.10.4  |
+| Storage   | lci-storage-01 | storage-01 | 10.0.10.5  |
 
 ## Prerequisites
 

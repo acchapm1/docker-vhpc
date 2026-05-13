@@ -125,10 +125,15 @@ STORAGE_SIZE := "5g"
 ### Distributed Storage Testing
 
 ```bash
-# Multiple storage nodes for BeeGFS/Ceph
+# Default storage count (used by `just up-with N` one-arg form)
 STORAGE_NODES := "3"
-# Then uncomment storage2, storage3 in cluster-config.yml
+
+# Or pass the count directly to up-with:
+just up-with 3 3   # 3 compute + 3 storage nodes
 ```
+
+storage-02..M come up bare (no NFS), ready for you to install BeeGFS or
+Ceph on `/data`. See [HOWTO.md](HOWTO.md) for the layout.
 
 ## Commands
 

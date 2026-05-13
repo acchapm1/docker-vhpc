@@ -128,76 +128,48 @@ just up-with 4   # Starts with 4 compute nodes (compute1-4)
 This automatically generates a `cluster-config.yml` file and starts the cluster
 with your desired node count (1-10 nodes supported).
 
-### Option 2: Edit Configuration File
+### Option 2: Inspect the generated overlay
 
-1. Initialize the cluster config:
-
-```bash
-just init-cluster 5   # Creates cluster-config.yml with commented sections for 5 nodes
-```
-
-2. Edit `cluster-config.yml` and uncomment the nodes you want to use:
-
-For hpc-rocky10/docker/cluster-config.yml:
-
-```yaml
-# compute-03:
-#   extends: compute_definition
-#   container_name: lci-compute-03
-#   hostname: compute-03
-#   networks:
-#     hpcnet:
-#       ipv4_address: 10.0.10.6
-#   mem_limit: 2g
-#   cpus: "1.0"
-#   depends_on:
-#     - head
-```
-
-3. Start cluster with the override config:
+`just up-with` calls `just init-cluster N [M]` under the hood, which
+writes `docker/cluster-config.yml` and is then merged with the base
+`docker-compose.yml`. To inspect what will be started without launching:
 
 ```bash
-docker-compose -f docker-compose.yml -f cluster-config.yml up -d
+just init-cluster 5 3
+docker-compose -f docker/docker-compose.yml -f docker/cluster-config.yml config
 ```
 
-### Option 3: Direct Docker-Compose Editing
-
-Edit `docker/docker-compose.yml` directly and add node definitions:
-
-**Example: Add compute-03**
-
-```yaml
-compute3:
-  extends: compute_definition
-  container_name: lci-compute-03
-  hostname: compute-03
-  networks:
-    hpcnet:
-      ipv4_address: 10.0.10.6
-  mem_limit: 2g
-  cpus: "1.0"
-  depends_on:
-    - head
-```
+`cluster-config.yml` is a generated file — do not edit it by hand. Re-run
+`init-cluster` (or `up-with`) to regenerate.
 
 **Available IP ranges:**
 
-- hpc-rocky10: 10.0.10.2-10.0.10.254
+- hpc-rocky10: 10.0.10.2-10.0.10.254 (head=.2, compute-01..02=.3-.4,
+  storage-01=.5, compute-03..10=.6-.13, storage-02..10=.240-.248)
 
 ### Adding Storage Nodes
 
-Additional storage nodes can be added but require manual configuration for
-distributed storage (e.g., BeeGFS, Ceph, NFS clustering). Uncomment the
-`storage2` section in `cluster-config.yml` if needed.
+Pass a second argument to `up-with` to scale the storage tier:
 
-**Warning:** The default NFS configuration assumes a single storage server.
-Multiple storage nodes require additional setup.
+```bash
+just up-with 3 3    # 3 compute nodes + 3 storage nodes
+```
+
+storage-01 keeps running an NFS server (the default cluster behavior).
+storage-02..M come up with `DISABLE_NFS_AUTOSTART=1` — sshd is reachable,
+`/data` is an empty scratch volume, and no NFS server is started. These
+bare nodes are intended for installing a distributed filesystem (BeeGFS,
+Ceph, etc.) under your own configuration.
+
+Storage-02..M use the reserved IP range `NETWORK.240-249` (see
+[NAMING.md](NAMING.md)) so they never collide with compute nodes.
 
 ### Maximum Node Count
 
-- **Compute nodes:** Up to 10 nodes (compute1-compute10)
-- **Storage nodes:** Up to 3 nodes (storage-storage3, requires manual config)
-- **Head nodes:** 1 node (cannot be scaled, contains management functions)
+- **Compute nodes:** Up to 10 (compute-01..compute-10, IPs `NETWORK.3-13`)
+- **Storage nodes:** Up to 10 (storage-01 at `NETWORK.5`, storage-02..10
+  at `NETWORK.240-248`)
+- **Head nodes:** 1 (cannot be scaled, contains management functions)
 
 ### Checking Cluster Status
 
