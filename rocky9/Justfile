@@ -244,7 +244,7 @@ ansible-run test="":
 		ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i ansible/docker_containers.yml ansible/playbook.yml -v; \
 	fi
 
-# Quick setup: build, start, copy keys, show status
+# Quick setup: build, up, copy keys, show status
 setup: generate-config build up copy-ssh-key status
 
 # View logs for all nodes or specific service
