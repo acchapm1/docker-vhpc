@@ -101,19 +101,19 @@ sudo -i
 # No password needed - rocky user is in wheel group with NOPASSWD
 
 ### Step 17: SSH to Other Nodes (as root from head node)
-ssh root@compute-01-1
-ssh root@compute-01-2
-ssh root@storage-01-1
+ssh root@asu-compute-01-1
+ssh root@asu-compute-01-2
+ssh root@asu-storage-01-1
 # No password needed - keys are pre-configured
 
 ## Verify Cluster
 
 ### Step 18: Check Hostname and Network
 hostname
-# Should show: head-01-1
+# Should show: asu-head-01-1
 
-ping compute-01-1
-ping storage-01-1
+ping asu-compute-01-1
+ping asu-storage-01-1
 
 ### Step 19: Check Installed Software
 which tmux nvim vim wget

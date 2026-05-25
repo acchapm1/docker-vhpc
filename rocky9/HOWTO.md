@@ -114,12 +114,14 @@ just build && just up && just copy-ssh-key && just status
 By default, each cluster includes:
 
 - 1 head node (login/management node)
-- 2 compute nodes (compute-01-1, compute-01-2)
-- 1 storage node (NFS server, storage-01-1)
+- 2 compute nodes (asu-compute-01-1, asu-compute-01-2)
+- 1 storage node (NFS server, asu-storage-01-1)
 
 Node names follow the LCI convention `{PREFIX}-{role}-{CC}-{N}`, where `CC` is
-your assigned cluster number. Set it via `CLUSTER_NUM` in the Justfile (see
-[NAMING.md](NAMING.md)). Examples below use the default cluster number `01`.
+your assigned cluster number. The hostname matches the container name exactly.
+Set the prefix via `PREFIX` and your cluster number via `CLUSTER_NUM` in the
+Justfile (see [NAMING.md](NAMING.md)). Examples below use the default prefix
+`asu` and cluster number `01`.
 
 ### Option 1: Use Just Helper (Easiest)
 
@@ -210,12 +212,12 @@ docker ps --filter "name=asu-"
 
 Defaults below use prefix `asu` and cluster number `01`.
 
-| Node     | Hostname     | Container Name   | IP Address | SSH Port | Role         |
-| -------- | ------------ | ---------------- | ---------- | -------- | ------------ |
-| head     | head-01-1    | asu-head-01-1    | 10.0.10.2  | 2222     | Login node   |
-| compute1 | compute-01-1 | asu-compute-01-1 | 10.0.10.3  | -        | Compute node |
-| compute2 | compute-01-2 | asu-compute-01-2 | 10.0.10.4  | -        | Compute node |
-| storage  | storage-01-1 | asu-storage-01-1 | 10.0.10.5  | -        | NFS/Storage  |
+| Node     | Container Name = Hostname | IP Address | SSH Port | Role         |
+| -------- | ------------------------- | ---------- | -------- | ------------ |
+| head     | asu-head-01-1             | 10.0.10.2  | 2222     | Login node   |
+| compute1 | asu-compute-01-1          | 10.0.10.3  | -        | Compute node |
+| compute2 | asu-compute-01-2          | 10.0.10.4  | -        | Compute node |
+| storage  | asu-storage-01-1          | 10.0.10.5  | -        | NFS/Storage  |
 
 ### Storage Node Access
 
@@ -224,9 +226,9 @@ The storage node has SSH access from the head node for testing storage solutions
 
 ```bash
 # After SSHing to head node as rocky and elevating to root
-ssh root@compute-01-1
-ssh root@compute-01-2
-ssh root@storage-01-1
+ssh root@asu-compute-01-1
+ssh root@asu-compute-01-2
+ssh root@asu-storage-01-1
 ```
 
 The `rocky` user cannot SSH between nodes - only `root` has inter-node access.

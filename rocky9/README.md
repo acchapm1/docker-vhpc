@@ -39,15 +39,15 @@ just ssh rocky
 ## Cluster Architecture
 
 Names follow the LCI convention `{PREFIX}-{role}-{CC}-{N}` where `CC` is the
-per-student cluster number. Defaults below use prefix `asu` and cluster number
-`01`.
+per-student cluster number. The hostname matches the container name exactly.
+Defaults below use prefix `asu` and cluster number `01`.
 
-| Node      | Container Name   | Hostname     | IP Address |
-| --------- | ---------------- | ------------ | ---------- |
-| Head      | asu-head-01-1    | head-01-1    | 10.0.10.2  |
-| Compute 1 | asu-compute-01-1 | compute-01-1 | 10.0.10.3  |
-| Compute 2 | asu-compute-01-2 | compute-01-2 | 10.0.10.4  |
-| Storage 1 | asu-storage-01-1 | storage-01-1 | 10.0.10.5  |
+| Node      | Container Name = Hostname | IP Address |
+| --------- | ------------------------- | ---------- |
+| Head      | asu-head-01-1             | 10.0.10.2  |
+| Compute 1 | asu-compute-01-1          | 10.0.10.3  |
+| Compute 2 | asu-compute-01-2          | 10.0.10.4  |
+| Storage 1 | asu-storage-01-1          | 10.0.10.5  |
 
 See [NAMING.md](NAMING.md) for how to set your cluster number and prefix.
 

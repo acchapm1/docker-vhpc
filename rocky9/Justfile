@@ -5,8 +5,8 @@
 # Cluster configuration
 PORT := "2222"                    # SSH port for external access
 NETWORK := "10.0.10"            # Docker network subnet
-PREFIX := "asu"                  # Container name prefix
-CLUSTER_NUM := "01"              # Virtual cluster number (per student, zero-padded). Names: {PREFIX}-{role}-{CLUSTER_NUM}-{N}
+PREFIX := "lci"                  # Container name prefix
+CLUSTER_NUM := "02"              # Virtual cluster number (per student, zero-padded). Names: {PREFIX}-{role}-{CLUSTER_NUM}-{N}
 
 # Scalability configuration
 COMPUTE_NODES := "2"              # Number of compute nodes (default: 2)
@@ -100,7 +100,7 @@ init-cluster n m="1":
 			printf '  compute%d:\n' "$i" >> "$CONFIG_FILE"
 			printf '    build: ./compute\n' >> "$CONFIG_FILE"
 			printf '    container_name: {{PREFIX}}-compute-{{CLUSTER_NUM}}-%d\n' "$i" >> "$CONFIG_FILE"
-			printf '    hostname: compute-{{CLUSTER_NUM}}-%d\n' "$i" >> "$CONFIG_FILE"
+			printf '    hostname: {{PREFIX}}-compute-{{CLUSTER_NUM}}-%d\n' "$i" >> "$CONFIG_FILE"
 			printf '    privileged: true\n' >> "$CONFIG_FILE"
 			printf '    tty: true\n' >> "$CONFIG_FILE"
 			printf '    networks:\n' >> "$CONFIG_FILE"
@@ -128,7 +128,7 @@ init-cluster n m="1":
 			printf '  storage%d:\n' "$j" >> "$CONFIG_FILE"
 			printf '    build: ./storage\n' >> "$CONFIG_FILE"
 			printf '    container_name: {{PREFIX}}-storage-{{CLUSTER_NUM}}-%d\n' "$j" >> "$CONFIG_FILE"
-			printf '    hostname: storage-{{CLUSTER_NUM}}-%d\n' "$j" >> "$CONFIG_FILE"
+			printf '    hostname: {{PREFIX}}-storage-{{CLUSTER_NUM}}-%d\n' "$j" >> "$CONFIG_FILE"
 			printf '    privileged: true\n' >> "$CONFIG_FILE"
 			printf '    tty: true\n' >> "$CONFIG_FILE"
 			printf '    networks:\n' >> "$CONFIG_FILE"

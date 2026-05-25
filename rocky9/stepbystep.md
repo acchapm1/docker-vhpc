@@ -18,15 +18,16 @@ prints the final container list.
 just status
 ```
 
-You should see four containers (names follow `{PREFIX}-{role}-{CC}-{N}`;
-defaults use prefix `asu` and cluster number `01`):
+You should see four containers (names follow `{PREFIX}-{role}-{CC}-{N}`, and the
+hostname matches the container name exactly; defaults use prefix `asu` and
+cluster number `01`):
 
-| Container          | Hostname       | IP        |
-| ------------------ | -------------- | --------- |
-| `asu-head-01-1`    | `head-01-1`    | 10.0.10.2 |
-| `asu-compute-01-1` | `compute-01-1` | 10.0.10.3 |
-| `asu-compute-01-2` | `compute-01-2` | 10.0.10.4 |
-| `asu-storage-01-1` | `storage-01-1` | 10.0.10.5 |
+| Container = Hostname | IP        |
+| -------------------- | --------- |
+| `asu-head-01-1`      | 10.0.10.2 |
+| `asu-compute-01-1`   | 10.0.10.3 |
+| `asu-compute-01-2`   | 10.0.10.4 |
+| `asu-storage-01-1`   | 10.0.10.5 |
 
 ## SSH into the head node
 
@@ -50,9 +51,9 @@ sudo -i
 other nodes. From inside the head node (as root):
 
 ```bash
-ssh root@compute-01-1
-ssh root@compute-01-2
-ssh root@storage-01-1
+ssh root@asu-compute-01-1
+ssh root@asu-compute-01-2
+ssh root@asu-storage-01-1
 ```
 
 No password needed.
