@@ -5,7 +5,8 @@
 # Cluster configuration
 PORT := "2222"                    # SSH port for external access
 NETWORK := "10.0.10"            # Docker network subnet
-PREFIX := "asu"                  # Container name prefix (lci = Linux Containers Inc)
+PREFIX := "asu"                  # Container name prefix
+CLUSTER_NUM := "01"              # Virtual cluster number (per student, zero-padded). Names: {PREFIX}-{role}-{CLUSTER_NUM}-{N}
 
 # Scalability configuration
 COMPUTE_NODES := "2"              # Number of compute nodes (default: 2)
@@ -32,6 +33,7 @@ generate-config:
 	PORT={{PORT}} \
 	NETWORK={{NETWORK}} \
 	PREFIX={{PREFIX}} \
+	CLUSTER_NUM={{CLUSTER_NUM}} \
 	COMPUTE_MEMORY={{COMPUTE_MEMORY}} \
 	./gen-config.sh
 
@@ -45,7 +47,7 @@ up: generate-config
 
 # Stop cluster and remove all volumes (destroys data)
 # Includes the overlay (cluster-config.yml) if present so volumes for
-# compute-03..N and storage-02..M get cleaned up too.
+# compute-CC-3..N and storage-CC-2..M get cleaned up too.
 down:
 	#!/bin/bash
 	set -euo pipefail
@@ -56,10 +58,10 @@ down:
 	fi
 
 # Initialize cluster config with N compute nodes and M storage nodes
-# Generates a docker-compose override file adding compute-03..N and
-# storage-02..M (the base compose already defines compute-01, compute-02,
-# and storage-01). When N<=2 and M<=1 the overlay is header-only and acts
-# as a no-op layer.
+# Generates a docker-compose override file adding compute-CC-3..N and
+# storage-CC-2..M (the base compose already defines compute-CC-1,
+# compute-CC-2, and storage-CC-1). When N<=2 and M<=1 the overlay is
+# header-only and acts as a no-op layer.
 init-cluster n m="1":
 	#!/bin/bash
 	set -euo pipefail
@@ -90,15 +92,15 @@ init-cluster n m="1":
 		echo 'services:'
 	} >> "$CONFIG_FILE"
 
-	# IP allocation per NAMING.md: compute-NN -> NETWORK.(NN+3) for NN>=3
-	# (.2=head, .3=compute-01, .4=compute-02, .5=storage-01, .6=compute-03, ...)
+	# IP allocation per NAMING.md: compute instance i -> NETWORK.(i+3) for i>=3
+	# (.2=head, .3=compute-CC-1, .4=compute-CC-2, .5=storage-CC-1, .6=compute-CC-3, ...)
 	if [ "$N" -ge 3 ]; then
 		for i in $(seq 3 "$N"); do
 			ip_octet=$((i + 3))
 			printf '  compute%d:\n' "$i" >> "$CONFIG_FILE"
 			printf '    build: ./compute\n' >> "$CONFIG_FILE"
-			printf '    container_name: {{PREFIX}}-compute-%02d\n' "$i" >> "$CONFIG_FILE"
-			printf '    hostname: compute-%02d\n' "$i" >> "$CONFIG_FILE"
+			printf '    container_name: {{PREFIX}}-compute-{{CLUSTER_NUM}}-%d\n' "$i" >> "$CONFIG_FILE"
+			printf '    hostname: compute-{{CLUSTER_NUM}}-%d\n' "$i" >> "$CONFIG_FILE"
 			printf '    privileged: true\n' >> "$CONFIG_FILE"
 			printf '    tty: true\n' >> "$CONFIG_FILE"
 			printf '    networks:\n' >> "$CONFIG_FILE"
@@ -116,7 +118,7 @@ init-cluster n m="1":
 	fi
 
 	# Storage scaling: storage-NN for NN>=2 lives in the reserved range
-	# NETWORK.240..249 (storage-02=.240, storage-03=.241, ...). storage-01
+	# NETWORK.240..249 (storage-CC-2=.240, storage-CC-3=.241, ...). storage-CC-1
 	# stays at .5 in the base compose for backward compatibility. The
 	# DISABLE_NFS_AUTOSTART env var is honored by the storage entrypoint
 	# to skip NFS setup so these nodes come up bare for BeeGFS/Ceph use.
@@ -125,8 +127,8 @@ init-cluster n m="1":
 			ip_octet=$((238 + j))
 			printf '  storage%d:\n' "$j" >> "$CONFIG_FILE"
 			printf '    build: ./storage\n' >> "$CONFIG_FILE"
-			printf '    container_name: {{PREFIX}}-storage-%02d\n' "$j" >> "$CONFIG_FILE"
-			printf '    hostname: storage-%02d\n' "$j" >> "$CONFIG_FILE"
+			printf '    container_name: {{PREFIX}}-storage-{{CLUSTER_NUM}}-%d\n' "$j" >> "$CONFIG_FILE"
+			printf '    hostname: storage-{{CLUSTER_NUM}}-%d\n' "$j" >> "$CONFIG_FILE"
 			printf '    privileged: true\n' >> "$CONFIG_FILE"
 			printf '    tty: true\n' >> "$CONFIG_FILE"
 			printf '    networks:\n' >> "$CONFIG_FILE"
@@ -159,15 +161,16 @@ init-cluster n m="1":
 		done
 	fi
 
+	CC="{{CLUSTER_NUM}}"
 	msg="Created docker/cluster-config.yml"
 	if [ "$N" -ge 3 ]; then
-		msg="$msg with compute-03..compute-$(printf '%02d' "$N")"
+		msg="$msg with compute-$CC-3..compute-$CC-$N"
 	fi
 	if [ "$M" -ge 2 ]; then
 		if [ "$N" -ge 3 ]; then
-			msg="$msg and storage-02..storage-$(printf '%02d' "$M")"
+			msg="$msg and storage-$CC-2..storage-$CC-$M"
 		else
-			msg="$msg with storage-02..storage-$(printf '%02d' "$M")"
+			msg="$msg with storage-$CC-2..storage-$CC-$M"
 		fi
 	fi
 	echo "$msg"
@@ -213,7 +216,7 @@ copy-ssh-key:
 	  docker exec -i "$c" bash -lc 'mkdir -p /root/.ssh && umask 077 && cat >> /root/.ssh/authorized_keys' < "$PUB"
 	done
 	
-	for head in $(docker ps --format "table" | sed '1d' | awk '{print $NF}' | grep -E '^{{PREFIX}}-head-01$'); do
+	for head in $(docker ps --format "table" | sed '1d' | awk '{print $NF}' | grep -E '^{{PREFIX}}-head-{{CLUSTER_NUM}}-1$'); do
 	  docker exec "$head" bash -lc 'if [ ! -f /root/.ssh/id_ed25519 ]; then ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519 -N "" -q; fi'
 	  HEAD_PUB=$(docker exec "$head" cat /root/.ssh/id_ed25519.pub 2>/dev/null || true)
 	  if [ -n "$HEAD_PUB" ]; then
@@ -260,7 +263,7 @@ logs service="":
 
 # Execute command in head node
 exec cmd="bash":
-	docker exec -i -t {{PREFIX}}-head-01 {{cmd}}
+	docker exec -i -t {{PREFIX}}-head-{{CLUSTER_NUM}}-1 {{cmd}}
 
 # Clean up everything: remove containers, images, volumes, networks
 clean:

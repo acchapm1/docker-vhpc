@@ -5,9 +5,10 @@
 PORT="${PORT:-2222}"
 NETWORK="${NETWORK:-172.29.10}"
 PREFIX="${PREFIX:-lci}"
+CLUSTER_NUM="${CLUSTER_NUM:-01}"
 COMPUTE_MEMORY="${COMPUTE_MEMORY:-2g}"
 
-echo "Generating with: PORT=$PORT, NETWORK=$NETWORK, PREFIX=$PREFIX, COMPUTE_MEMORY=$COMPUTE_MEMORY"
+echo "Generating with: PORT=$PORT, NETWORK=$NETWORK, PREFIX=$PREFIX, CLUSTER_NUM=$CLUSTER_NUM, COMPUTE_MEMORY=$COMPUTE_MEMORY"
 
 # Generate docker-compose.yml
 # Note: cluster-config.yml is produced by `just init-cluster <N>` and is not
@@ -16,6 +17,7 @@ sed \
     -e "s|{{PORT}}|$PORT|g" \
     -e "s|{{NETWORK}}|$NETWORK|g" \
     -e "s|{{PREFIX}}|$PREFIX|g" \
+    -e "s|{{CLUSTER_NUM}}|$CLUSTER_NUM|g" \
     -e "s|{{COMPUTE_MEMORY}}|$COMPUTE_MEMORY|g" \
     docker-compose.yml.template > docker-compose.yml
 

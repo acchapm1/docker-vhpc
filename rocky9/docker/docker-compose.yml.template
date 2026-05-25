@@ -1,8 +1,8 @@
 services:
   head:
     build: ./head
-    container_name: {{PREFIX}}-head-01
-    hostname: head-01
+    container_name: {{PREFIX}}-head-{{CLUSTER_NUM}}-1
+    hostname: head-{{CLUSTER_NUM}}-1
     ports:
       - "{{PORT}}:22"
     networks:
@@ -16,8 +16,8 @@ services:
 
   compute1:
     extends: compute_definition
-    container_name: {{PREFIX}}-compute-01
-    hostname: compute-01
+    container_name: {{PREFIX}}-compute-{{CLUSTER_NUM}}-1
+    hostname: compute-{{CLUSTER_NUM}}-1
     networks:
       hpcnet:
         ipv4_address: {{NETWORK}}.3
@@ -28,8 +28,8 @@ services:
 
   compute2:
     extends: compute_definition
-    container_name: {{PREFIX}}-compute-02
-    hostname: compute-02
+    container_name: {{PREFIX}}-compute-{{CLUSTER_NUM}}-2
+    hostname: compute-{{CLUSTER_NUM}}-2
     networks:
       hpcnet:
         ipv4_address: {{NETWORK}}.4
@@ -40,8 +40,8 @@ services:
 
   storage:
     build: ./storage
-    container_name: {{PREFIX}}-storage-01
-    hostname: storage-01
+    container_name: {{PREFIX}}-storage-{{CLUSTER_NUM}}-1
+    hostname: storage-{{CLUSTER_NUM}}-1
     privileged: true
     networks:
       hpcnet:

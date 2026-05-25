@@ -114,15 +114,19 @@ just build && just up && just copy-ssh-key && just status
 By default, each cluster includes:
 
 - 1 head node (login/management node)
-- 2 compute nodes (compute1, compute2)
-- 1 storage node (NFS server)
+- 2 compute nodes (compute-01-1, compute-01-2)
+- 1 storage node (NFS server, storage-01-1)
+
+Node names follow the LCI convention `{PREFIX}-{role}-{CC}-{N}`, where `CC` is
+your assigned cluster number. Set it via `CLUSTER_NUM` in the Justfile (see
+[NAMING.md](NAMING.md)). Examples below use the default cluster number `01`.
 
 ### Option 1: Use Just Helper (Easiest)
 
 Start the cluster with a custom number of compute nodes:
 
 ```bash
-just up-with 4   # Starts with 4 compute nodes (compute1-4)
+just up-with 4   # Starts with 4 compute nodes (compute-01-1 .. compute-01-4)
 ```
 
 This automatically generates a `cluster-config.yml` file and starts the cluster
@@ -130,8 +134,8 @@ with your desired node count (1-10 nodes supported).
 
 ### Option 2: Inspect the generated overlay
 
-`just up-with` calls `just init-cluster N [M]` under the hood, which
-writes `docker/cluster-config.yml` and is then merged with the base
+`just up-with` calls `just init-cluster N [M]` under the hood, which writes
+`docker/cluster-config.yml` and is then merged with the base
 `docker-compose.yml`. To inspect what will be started without launching:
 
 ```bash
@@ -142,10 +146,10 @@ docker-compose -f docker/docker-compose.yml -f docker/cluster-config.yml config
 `cluster-config.yml` is a generated file — do not edit it by hand. Re-run
 `init-cluster` (or `up-with`) to regenerate.
 
-**Available IP ranges:**
+**Available IP ranges (cluster number `01`):**
 
-- hpc-rocky9: 172.29.10.2-172.29.10.254 (head=.2, compute-01..02=.3-.4,
-  storage-01=.5, compute-03..10=.6-.13, storage-02..10=.240-.248)
+- 10.0.10.2-10.0.10.254 (head=.2, compute-01-1..2=.3-.4, storage-01-1=.5,
+  compute-01-3..10=.6-.13, storage-01-2..10=.240-.248)
 
 ### Adding Storage Nodes
 
@@ -155,20 +159,20 @@ Pass a second argument to `up-with` to scale the storage tier:
 just up-with 3 3    # 3 compute nodes + 3 storage nodes
 ```
 
-storage-01 keeps running an NFS server (the default cluster behavior).
-storage-02..M come up with `DISABLE_NFS_AUTOSTART=1` — sshd is reachable,
-`/data` is an empty scratch volume, and no NFS server is started. These
-bare nodes are intended for installing a distributed filesystem (BeeGFS,
-Ceph, etc.) under your own configuration.
+storage-01-1 keeps running an NFS server (the default cluster behavior).
+storage-01-2..M come up with `DISABLE_NFS_AUTOSTART=1` — sshd is reachable,
+`/data` is an empty scratch volume, and no NFS server is started. These bare
+nodes are intended for installing a distributed filesystem (BeeGFS, Ceph, etc.)
+under your own configuration.
 
-Storage-02..M use the reserved IP range `NETWORK.240-249` (see
+storage-01-2..M use the reserved IP range `NETWORK.240-249` (see
 [NAMING.md](NAMING.md)) so they never collide with compute nodes.
 
 ### Maximum Node Count
 
-- **Compute nodes:** Up to 10 (compute-01..compute-10, IPs `NETWORK.3-13`)
-- **Storage nodes:** Up to 10 (storage-01 at `NETWORK.5`, storage-02..10
-  at `NETWORK.240-248`)
+- **Compute nodes:** Up to 10 (compute-CC-1..compute-CC-10, IPs `NETWORK.3-13`)
+- **Storage nodes:** Up to 10 (storage-CC-1 at `NETWORK.5`, storage-CC-2..10 at
+  `NETWORK.240-248`)
 - **Head nodes:** 1 (cannot be scaled, contains management functions)
 
 ### Checking Cluster Status
@@ -179,10 +183,10 @@ View running nodes:
 just status
 ```
 
-List all containers:
+List all containers (default prefix `asu`):
 
 ```bash
-docker ps --filter "name=lci-"
+docker ps --filter "name=asu-"
 ```
 
 ### Troubleshooting Scale Issues
@@ -195,7 +199,7 @@ docker ps --filter "name=lci-"
 **Problem: Container name collision**
 
 - Each `container_name` must be unique
-- Format: `lci-{role}-{NN}` (e.g., lci-compute-03, lci-storage-02)
+- Format: `{PREFIX}-{role}-{CC}-{N}` (e.g., asu-compute-01-3, asu-storage-01-2)
 
 **Problem: Service not starting**
 
@@ -204,12 +208,14 @@ docker ps --filter "name=lci-"
 
 ## Cluster Architecture
 
-| Node     | Hostname   | Container Name | IP Address  | SSH Port | Role         |
-| -------- | ---------- | -------------- | ----------- | -------- | ------------ |
-| head     | head-01    | lci-head-01    | 172.29.10.2 | 2222     | Login node   |
-| compute1 | compute-01 | lci-compute-01 | 172.29.10.3 | -        | Compute node |
-| compute2 | compute-02 | lci-compute-02 | 172.29.10.4 | -        | Compute node |
-| storage  | storage-01 | lci-storage-01 | 172.29.10.5 | -        | NFS/Storage  |
+Defaults below use prefix `asu` and cluster number `01`.
+
+| Node     | Hostname     | Container Name   | IP Address | SSH Port | Role         |
+| -------- | ------------ | ---------------- | ---------- | -------- | ------------ |
+| head     | head-01-1    | asu-head-01-1    | 10.0.10.2  | 2222     | Login node   |
+| compute1 | compute-01-1 | asu-compute-01-1 | 10.0.10.3  | -        | Compute node |
+| compute2 | compute-01-2 | asu-compute-01-2 | 10.0.10.4  | -        | Compute node |
+| storage  | storage-01-1 | asu-storage-01-1 | 10.0.10.5  | -        | NFS/Storage  |
 
 ### Storage Node Access
 
@@ -218,9 +224,9 @@ The storage node has SSH access from the head node for testing storage solutions
 
 ```bash
 # After SSHing to head node as rocky and elevating to root
-ssh root@compute-01
-ssh root@compute-02
-ssh root@storage-01
+ssh root@compute-01-1
+ssh root@compute-01-2
+ssh root@storage-01-1
 ```
 
 The `rocky` user cannot SSH between nodes - only `root` has inter-node access.
@@ -232,10 +238,10 @@ The `rocky` user cannot SSH between nodes - only `root` has inter-node access.
 docker ps
 
 # View container logs
-docker logs lci-head-01
+docker logs asu-head-01-1
 
 # Execute command in container
-docker exec -it lci-head-01 bash
+docker exec -it asu-head-01-1 bash
 
 # Stop containers
 just down
@@ -257,7 +263,7 @@ just ansible-run
 ### SSH connection refused
 
 - Ensure containers are running: `docker ps`
-- Check if SSH is running: `docker logs lci-head-01`
+- Check if SSH is running: `docker logs asu-head-01-1`
 - Re-run SSH key setup: `just copy-ssh-key`
 
 ### Permission denied
@@ -307,10 +313,10 @@ If you need to test changes before baking them into images:
 
 ```bash
 # Install software temporarily (lost on container recreation)
-docker exec -it lci-head-01 dnf -y install <package>
+docker exec -it asu-head-01-1 dnf -y install <package>
 
 # Make config changes (persists until volume is removed)
-docker exec -it lci-head-01 vi /etc/some/config
+docker exec -it asu-head-01-1 vi /etc/some/config
 ```
 
 ### Using Ansible for Configuration

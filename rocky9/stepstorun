@@ -78,7 +78,8 @@ just up
 
 ### Step 13: Verify Containers are Running
 just status
-# Should show: asu-head-01, asu-compute-01, asu-compute-02, asu-storage-01
+# Should show: asu-head-01-1, asu-compute-01-1, asu-compute-01-2, asu-storage-01-1
+# (names follow {PREFIX}-{role}-{CC}-{N}; CC is your CLUSTER_NUM, default 01)
 
 ### Step 14: Copy SSH Key to Containers
 just copy-ssh-key
@@ -100,19 +101,19 @@ sudo -i
 # No password needed - rocky user is in wheel group with NOPASSWD
 
 ### Step 17: SSH to Other Nodes (as root from head node)
-ssh root@compute-01
-ssh root@compute-02
-ssh root@storage-01
+ssh root@compute-01-1
+ssh root@compute-01-2
+ssh root@storage-01-1
 # No password needed - keys are pre-configured
 
 ## Verify Cluster
 
 ### Step 18: Check Hostname and Network
 hostname
-# Should show: head-01
+# Should show: head-01-1
 
-ping compute-01
-ping storage-01
+ping compute-01-1
+ping storage-01-1
 
 ### Step 19: Check Installed Software
 which tmux nvim vim wget
@@ -127,10 +128,10 @@ just up-with 5
 ### Scale Compute AND Storage
 just up-with 3 3
 # 3 compute nodes + 3 storage nodes
-# storage-01 runs NFS (default). storage-02..M come up bare with
+# storage-01-1 runs NFS (default). storage-01-2..M come up bare with
 # DISABLE_NFS_AUTOSTART=1 - sshd + an empty /data scratch volume,
 # ready for you to install BeeGFS, Ceph, or another distributed FS.
-# See NAMING.md for the reserved IP range (storage-02..M at .240-.249).
+# See NAMING.md for the reserved IP range (storage-CC-2..M at .240-.249).
 
 # After scaling, re-run copy-ssh-key to push keys to the new nodes:
 just copy-ssh-key
@@ -170,7 +171,7 @@ just setup
 docker ps
 
 # Check SSH is running in container
-docker logs asu-head-01
+docker logs asu-head-01-1
 
 # Re-run SSH key setup
 just copy-ssh-key

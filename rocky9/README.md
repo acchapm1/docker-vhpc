@@ -9,8 +9,9 @@ Virtual HPC cluster using Rocky Linux 9.7 with Docker containerization.
 - **Scalable architecture** - 1 head node, up to 10 compute nodes, up to 3
   storage nodes
 - **Centralized configuration** - All variables in Justfile (PORT, NETWORK,
-  VARIANT, etc.)
-- **Consistent naming** - lci-head-01, lci-compute-01, lci-storage-01
+  PREFIX, CLUSTER_NUM, etc.)
+- **LCI lab naming** - `{PREFIX}-{role}-{CC}-{N}`, e.g. asu-head-01-1,
+  asu-compute-01-1, asu-storage-01-1
 - **Pre-installed tools** - tmux, neovim, vim, wget on all nodes
 
 ## Quick Start
@@ -37,12 +38,18 @@ just ssh rocky
 
 ## Cluster Architecture
 
-| Node      | Container Name | Hostname   | IP Address  |
-| --------- | -------------- | ---------- | ----------- |
-| Head      | lci-head-01    | head-01    | 172.29.10.2 |
-| Compute 1 | lci-compute-01 | compute-01 | 172.29.10.3 |
-| Compute 2 | lci-compute-02 | compute-02 | 172.29.10.4 |
-| Storage   | lci-storage-01 | storage-01 | 172.29.10.5 |
+Names follow the LCI convention `{PREFIX}-{role}-{CC}-{N}` where `CC` is the
+per-student cluster number. Defaults below use prefix `asu` and cluster number
+`01`.
+
+| Node      | Container Name   | Hostname     | IP Address |
+| --------- | ---------------- | ------------ | ---------- |
+| Head      | asu-head-01-1    | head-01-1    | 10.0.10.2  |
+| Compute 1 | asu-compute-01-1 | compute-01-1 | 10.0.10.3  |
+| Compute 2 | asu-compute-01-2 | compute-01-2 | 10.0.10.4  |
+| Storage 1 | asu-storage-01-1 | storage-01-1 | 10.0.10.5  |
+
+See [NAMING.md](NAMING.md) for how to set your cluster number and prefix.
 
 ## Prerequisites
 
