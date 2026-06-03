@@ -6,7 +6,7 @@
 PORT := "2222"                    # SSH port for external access
 NETWORK := "10.0.10"            # Docker network subnet
 PREFIX := "lci"                  # Container name prefix
-CLUSTER_NUM := "02"              # Virtual cluster number (per student, zero-padded). Names: {PREFIX}-{role}-{CLUSTER_NUM}-{N}
+CLUSTER_NUM := "01"              # Virtual cluster number (per student, zero-padded). Names: {PREFIX}-{role}-{CLUSTER_NUM}-{N}
 
 # Scalability configuration
 COMPUTE_NODES := "2"              # Number of compute nodes (default: 2)
