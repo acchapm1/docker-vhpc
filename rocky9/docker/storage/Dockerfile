@@ -11,7 +11,7 @@ COPY --from=builder /sbin /sbin
 # kernel under Docker Desktop has no nfsd module, so the in-kernel NFS server
 # cannot run. ganesha exports /export over NFSv4 entirely in userspace.
 RUN dnf -y install epel-release centos-release-nfs-ganesha5 && \
-    dnf -y install nfs-utils e2fsprogs util-linux supervisor openssh-server ncurses vim wget \
+    dnf -y install nfs-utils e2fsprogs xfsprogs lvm2 util-linux supervisor openssh-server ncurses vim wget \
                    nfs-ganesha nfs-ganesha-vfs && \
     dnf -y clean all
 

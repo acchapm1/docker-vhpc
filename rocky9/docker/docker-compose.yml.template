@@ -13,6 +13,12 @@ services:
       - head-var:/var/log
     privileged: true
     tty: true
+    # tini as PID 1 forwards SIGTERM to supervisord's children so the container
+    # stops cleanly (supervisord doesn't propagate signals on its own, which can
+    # wedge the Docker Desktop shim on teardown). stop_grace_period keeps the
+    # SIGKILL fallback quick.
+    init: true
+    stop_grace_period: 5s
 
   compute1:
     extends: compute_definition
@@ -43,6 +49,8 @@ services:
     container_name: {{PREFIX}}-storage-{{CLUSTER_NUM}}-1
     hostname: {{PREFIX}}-storage-{{CLUSTER_NUM}}-1
     privileged: true
+    init: true
+    stop_grace_period: 5s
     networks:
       hpcnet:
         ipv4_address: {{NETWORK}}.5
@@ -61,6 +69,8 @@ services:
       - compute1-var:/var/log
     privileged: true
     tty: true
+    init: true
+    stop_grace_period: 5s
 
 networks:
   hpcnet:
