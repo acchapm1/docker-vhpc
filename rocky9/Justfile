@@ -45,17 +45,59 @@ build: generate-config
 up: generate-config
 	docker-compose -f docker/docker-compose.yml up -d
 
-# Stop cluster and remove all volumes (destroys data)
 # Includes the overlay (cluster-config.yml) if present so volumes for
 # compute-CC-3..N and storage-CC-2..M get cleaned up too.
+#
+# Docker Desktop sometimes reports "tried to kill container, but did not receive
+# an exit event" even though the container actually stopped — `compose down`
+# then errors before removing the containers/volumes. We tolerate that: if the
+# compose-down fails, force-remove any lingering PREFIX-* containers (plus the
+# stray compute_definition helper) and retry the down to sweep volumes/networks.
+#
+# Stop cluster and remove all volumes (destroys data)
 down:
 	#!/bin/bash
-	set -euo pipefail
+	set -uo pipefail
+	files=(-f docker/docker-compose.yml)
 	if [ -s docker/cluster-config.yml ] && grep -q '^services:' docker/cluster-config.yml; then
-	  docker-compose -f docker/docker-compose.yml -f docker/cluster-config.yml down --volumes --remove-orphans
-	else
-	  docker-compose -f docker/docker-compose.yml down --volumes --remove-orphans
+	  files+=(-f docker/cluster-config.yml)
 	fi
+
+	compose_down() {
+	  docker-compose "${files[@]}" down --volumes --remove-orphans
+	}
+
+	# Force-remove any cluster containers Docker Desktop left wedged/exited.
+	# Uses `--format table` + awk to read names (a Go-template format string would
+	# clash with just's own brace interpolation, even inside comments).
+	force_remove_stragglers() {
+	  local leftovers
+	  leftovers=$(docker ps -a --format "table" | sed '1d' | awk '{print $NF}' \
+	    | grep -E '^{{PREFIX}}-(head|compute|storage)-|^docker-compute_definition' || true)
+	  if [ -n "$leftovers" ]; then
+	    echo "Force-removing leftover containers:"
+	    echo "$leftovers" | sed 's/^/  - /'
+	    echo "$leftovers" | xargs -r docker rm -f >/dev/null 2>&1 || true
+	  fi
+	}
+
+	if compose_down; then
+	  exit 0
+	fi
+
+	echo ""
+	echo "compose down reported an error (likely the Docker Desktop exit-event"
+	echo "hiccup). Falling back to force-remove + retry..."
+	force_remove_stragglers
+	# Retry to sweep any volumes/networks the first pass could not reach.
+	if compose_down; then
+	  echo "Cleanup complete after fallback."
+	  exit 0
+	fi
+	# Last-resort: the containers are gone; report remaining state, don't hard-fail.
+	echo "compose down still errored; verify with: docker ps -a | grep {{PREFIX}}-"
+	force_remove_stragglers
+	exit 0
 
 # Initialize cluster config with N compute nodes and M storage nodes
 # Generates a docker-compose override file adding compute-CC-3..N and
@@ -103,6 +145,8 @@ init-cluster n m="1":
 			printf '    hostname: {{PREFIX}}-compute-{{CLUSTER_NUM}}-%d\n' "$i" >> "$CONFIG_FILE"
 			printf '    privileged: true\n' >> "$CONFIG_FILE"
 			printf '    tty: true\n' >> "$CONFIG_FILE"
+			printf '    init: true\n' >> "$CONFIG_FILE"
+			printf '    stop_grace_period: 5s\n' >> "$CONFIG_FILE"
 			printf '    networks:\n' >> "$CONFIG_FILE"
 			printf '      hpcnet:\n' >> "$CONFIG_FILE"
 			printf '        ipv4_address: {{NETWORK}}.%d\n' "$ip_octet" >> "$CONFIG_FILE"
@@ -131,6 +175,8 @@ init-cluster n m="1":
 			printf '    hostname: {{PREFIX}}-storage-{{CLUSTER_NUM}}-%d\n' "$j" >> "$CONFIG_FILE"
 			printf '    privileged: true\n' >> "$CONFIG_FILE"
 			printf '    tty: true\n' >> "$CONFIG_FILE"
+			printf '    init: true\n' >> "$CONFIG_FILE"
+			printf '    stop_grace_period: 5s\n' >> "$CONFIG_FILE"
 			printf '    networks:\n' >> "$CONFIG_FILE"
 			printf '      hpcnet:\n' >> "$CONFIG_FILE"
 			printf '        ipv4_address: {{NETWORK}}.%d\n' "$ip_octet" >> "$CONFIG_FILE"
@@ -232,20 +278,170 @@ copy-ssh-key:
 	echo "SSH to head: ssh rocky@localhost -p {{PORT}}"
 	echo "Then elevate: sudo -i  (no password required)"
 
-# Install Ansible collection for dynamic inventory
+# Mount the storage node's NFS /export as /scratch on head + compute nodes.
+# Runs the Ansible playbook against the running cluster. Persistent: adds an
+# /etc/fstab entry and a supervisord boot hook so /scratch re-mounts on restart.
+#
+# Ansible runs from a uv-managed Python 3.12 env in ansible/ (see
+# `just ansible-setup`). On macOS, the docker connection plugin triggers a
+# fork() crash ("A worker was found in a dead state") via macOS proxy
+# auto-detection (_scproxy); no_proxy=* disables it. OBJC_DISABLE... is a belt-
+# and-suspenders guard. ansible.cfg pins forks=1, the inventory, and the
+# interpreter.
+mount-scratch: ansible-setup
+	#!/bin/bash
+	set -euo pipefail
+	cd ansible
+	LCI_PREFIX="{{PREFIX}}-" \
+	LCI_CLUSTER_NUM="{{CLUSTER_NUM}}" \
+	no_proxy='*' NO_PROXY='*' \
+	OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES \
+	  uv run ansible-playbook playbook.yml
+
+# Provision the uv-managed Ansible env (Python 3.12 + ansible). Idempotent: uv
+# syncs from ansible/pyproject.toml + uv.lock and no-ops if already in sync.
+ansible-setup:
+	#!/bin/bash
+	set -euo pipefail
+	if ! command -v uv >/dev/null 2>&1; then
+	  echo "Error: uv not found. Install it: https://docs.astral.sh/uv/"
+	  exit 1
+	fi
+	cd ansible && uv sync --quiet
+
+# Install Ansible collection for dynamic inventory (legacy; the uv env from
+# `just ansible-setup` already bundles community.docker via the ansible package)
 install-collections:
 	ansible-galaxy collection install community.docker
 
-# Run Ansible playbook with optional syntax check
-ansible-run test="":
-	@if [ -n "{{test}}" ]; then \
-		ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i ansible/docker_containers.yml ansible/playbook.yml --syntax-check; \
-	else \
-		ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i ansible/docker_containers.yml ansible/playbook.yml -v; \
+# Run Ansible playbook with optional syntax check (via the uv env)
+ansible-run test="": ansible-setup
+	#!/bin/bash
+	set -euo pipefail
+	cd ansible
+	export LCI_PREFIX="{{PREFIX}}-" LCI_CLUSTER_NUM="{{CLUSTER_NUM}}"
+	export no_proxy='*' NO_PROXY='*' OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+	if [ -n "{{test}}" ]; then
+	  uv run ansible-playbook playbook.yml --syntax-check
+	else
+	  uv run ansible-playbook playbook.yml -v
 	fi
 
 # Quick setup: build, up, copy keys, show status
 setup: generate-config build up copy-ssh-key status
+
+# Launch the Intro template: 1 head, 2 compute, 1 storage, with the storage
+# node's NFS /export auto-mounted as /scratch on the head and both compute
+# nodes. One command: generate config -> build -> start -> wire SSH ->
+# mount /scratch -> show status. Requires Ansible (see `just mount-scratch`).
+intro:
+	#!/bin/bash
+	set -euo pipefail
+	echo "==> Intro template: 1 head, 2 compute, 1 storage + NFS /scratch"
+	# Reset any scale-out overlay so we get exactly the base topology.
+	just init-cluster 2 1
+	just generate-config
+	docker-compose -f docker/docker-compose.yml build
+	docker-compose -f docker/docker-compose.yml up -d
+	just copy-ssh-key
+	just mount-scratch
+	just status
+	echo ""
+	echo "Intro cluster ready. /scratch (NFS from {{PREFIX}}-storage-{{CLUSTER_NUM}}-1:/export)"
+	echo "is mounted on the head and both compute nodes."
+
+# Generate the Inter overlay: 4 uniform storage nodes (storage-CC-1..4), each
+# bare (DISABLE_NFS_AUTOSTART=1) with two raw 5g loopback drives /dev/vdb and
+# /dev/vdc for PFS labs (BeeGFS/Lustre/Ceph). storage-CC-1 is the base-compose
+# `storage` service, so we override it here to add the extra-drive env + a
+# /drives volume so all four nodes are identical. Compute stays at the base 2.
+_inter-config:
+	#!/bin/bash
+	set -euo pipefail
+	CONFIG_FILE="docker/cluster-config.yml"
+	{
+		echo '# Auto-generated Inter overlay - do not edit by hand'
+		echo '# Regenerated by: just inter (via just _inter-config)'
+		echo '# Topology: 1 head, 2 compute, 4 storage; each storage node bare'
+		echo '# (no NFS) with raw /dev/vdb + /dev/vdc (5g, unformatted) for PFS labs.'
+		echo ''
+		echo 'services:'
+		echo ''
+		# Override storage-CC-1 (the base `storage` service): disable NFS and add
+		# the two extra drives so it matches storage-CC-2..4. environment/volumes
+		# in list form merge onto the base service.
+		echo '  storage:'
+		echo '    environment:'
+		echo '      - DISABLE_NFS_AUTOSTART=1'
+		echo '      - EXTRA_DRIVES=vdb vdc'
+		echo '      - EXTRA_DRIVE_SIZE_GB=5'
+		echo '    volumes:'
+		echo '      - storage-01-drives:/drives'
+		echo ''
+	} > "$CONFIG_FILE"
+
+	# storage-CC-2..4 live in the reserved range NETWORK.240.. (storage-CC-2=.240,
+	# -3=.241, -4=.242), matching init-cluster's allocation.
+	for j in 2 3 4; do
+		ip_octet=$((238 + j))
+		{
+			printf '  storage%d:\n' "$j"
+			printf '    build: ./storage\n'
+			printf '    container_name: {{PREFIX}}-storage-{{CLUSTER_NUM}}-%d\n' "$j"
+			printf '    hostname: {{PREFIX}}-storage-{{CLUSTER_NUM}}-%d\n' "$j"
+			printf '    privileged: true\n'
+			printf '    tty: true\n'
+			printf '    init: true\n'
+			printf '    stop_grace_period: 5s\n'
+			printf '    networks:\n'
+			printf '      hpcnet:\n'
+			printf '        ipv4_address: {{NETWORK}}.%d\n' "$ip_octet"
+			printf '    environment:\n'
+			printf '      - DISABLE_NFS_AUTOSTART=1\n'
+			printf '      - EXTRA_DRIVES=vdb vdc\n'
+			printf '      - EXTRA_DRIVE_SIZE_GB=5\n'
+			printf '    volumes:\n'
+			printf '      - storage-%02d-data:/export\n' "$j"
+			printf '      - storage-%02d-var:/var/log\n' "$j"
+			printf '      - storage-%02d-scratch:/data\n' "$j"
+			printf '      - storage-%02d-drives:/drives\n' "$j"
+			printf '    depends_on:\n'
+			printf '      - head\n'
+			echo ''
+		} >> "$CONFIG_FILE"
+	done
+
+	{
+		echo 'volumes:'
+		echo '  storage-01-drives:'
+		for j in 2 3 4; do
+			printf '  storage-%02d-data:\n' "$j"
+			printf '  storage-%02d-var:\n' "$j"
+			printf '  storage-%02d-scratch:\n' "$j"
+			printf '  storage-%02d-drives:\n' "$j"
+		done
+	} >> "$CONFIG_FILE"
+	echo "Created docker/cluster-config.yml (Inter: storage-{{CLUSTER_NUM}}-1..4, each with vdb/vdc)"
+
+# Launch the Inter template: 1 head, 2 compute, 4 storage. Each storage node is
+# bare (no NFS) and exposes two raw, unformatted 5g block devices /dev/vdb and
+# /dev/vdc (loopback-backed) for parallel-filesystem labs (BeeGFS/Lustre/Ceph).
+# One command: overlay -> build -> start -> wire SSH -> show status.
+inter:
+	#!/bin/bash
+	set -euo pipefail
+	echo "==> Inter template: 1 head, 2 compute, 4 storage (raw vdb/vdc drives)"
+	just generate-config
+	just _inter-config
+	docker-compose -f docker/docker-compose.yml -f docker/cluster-config.yml build
+	docker-compose -f docker/docker-compose.yml -f docker/cluster-config.yml up -d
+	just copy-ssh-key
+	just status
+	echo ""
+	echo "Inter cluster ready. Each storage-{{CLUSTER_NUM}}-N has raw /dev/vdb and"
+	echo "/dev/vdc (~5g, unformatted). Format them yourself for BeeGFS/Lustre/Ceph,"
+	echo "e.g.:  docker exec {{PREFIX}}-storage-{{CLUSTER_NUM}}-1 lsblk"
+	echo "       docker exec {{PREFIX}}-storage-{{CLUSTER_NUM}}-1 mkfs.xfs /dev/vdb"
 
 # View logs for all nodes or specific service
 logs service="":
@@ -275,7 +471,7 @@ clean:
 	fi
 
 # Validate configuration: check docker-compose and ansible syntax
-validate:
+validate: ansible-setup
 	#!/bin/bash
 	set -euo pipefail
 	if [ -s docker/cluster-config.yml ] && grep -q '^services:' docker/cluster-config.yml; then
@@ -285,7 +481,8 @@ validate:
 	  docker-compose -f docker/docker-compose.yml config >/dev/null
 	  echo "OK: base compose"
 	fi
-	ansible-playbook -i ansible/docker_containers.yml ansible/playbook.yml --syntax-check
+	cd ansible && no_proxy='*' NO_PROXY='*' OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES \
+	  uv run ansible-playbook playbook.yml --syntax-check
 
 # Format all markdown files to 80 character width (requires prettier)
 format-md:
