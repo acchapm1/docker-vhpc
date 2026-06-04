@@ -14,7 +14,7 @@ Includes tmux, neovim/nvim, vim, and wget.
 > **Rocky 10 note:** this variant ships the **`just inter`** template only. The
 > **`just intro`** (NFS `/scratch`) template is **not available on Rocky 10** —
 > `nfs-ganesha` is not packaged for EL10. Use the [`rocky9/`](../rocky9/) variant
-> for the shared-scratch workflow. See [INTER.md](INTER.md) for details.
+> for the shared-scratch workflow. See [INTRO.md](INTRO.md) for details.
 
 ## SSH Key Setup
 
@@ -115,7 +115,7 @@ just build && just up && just copy-ssh-key && just status
 
 Rocky 10 ships one single-command template, **`just inter`**. (The NFS
 `/scratch` **`just intro`** template is rocky9-only — `nfs-ganesha` is not
-packaged for EL10; see [INTER.md](INTER.md).) The recipe does everything:
+packaged for EL10; see [INTRO.md](INTRO.md).) The recipe does everything:
 generate config → build → start → wire passwordless SSH → provision storage →
 show status.
 

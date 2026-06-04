@@ -21,7 +21,7 @@ Virtual HPC cluster using Rocky Linux 10.1 with Docker containerization.
 > **Note:** Rocky 10 ships the **`just inter`** template only. The **`just
 > intro`** (shared NFS `/scratch`) template is **not available on Rocky 10** —
 > `nfs-ganesha` is not packaged for EL10. Use the [`rocky9/`](../rocky9/) variant
-> for the NFS-scratch workflow. See [INTER.md](INTER.md) for the full
+> for the NFS-scratch workflow. See [INTRO.md](INTRO.md) for the full
 > explanation and workarounds.
 
 ### `just inter` — raw drives for parallel filesystems
@@ -69,7 +69,8 @@ just down
 
 ## Documentation
 
-- [INTER.md](INTER.md) - `just inter` details + why `just intro` is rocky9-only
+- [INTRO.md](INTRO.md) - why `just intro` (NFS /scratch) is rocky9-only, plus
+  workarounds; and `just inter` usage on Rocky 10
 - [HOWTO.md](HOWTO.md) - Quick start guide and troubleshooting
 - [CONFIGURATION.md](CONFIGURATION.md) - Centralized configuration guide
 - [NAMING.md](NAMING.md) - Container naming conventions

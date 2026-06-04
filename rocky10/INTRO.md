@@ -1,8 +1,8 @@
-# Rocky 10 Templates: `just inter` works, `just intro` does not
+# `just intro` on Rocky 10: not available (and what to do instead)
 
-This document explains which predefined cluster templates are available on the
-**Rocky Linux 10.1** variant and why — and gives options if you need the missing
-one.
+This document explains why the **`just intro`** (NFS `/scratch`) template is not
+available on the **Rocky Linux 10.1** variant, what to do if you need it, and
+confirms that **`just inter`** works here as usual.
 
 ## TL;DR
 
