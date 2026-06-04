@@ -6,6 +6,12 @@
 # Show all available just commands
 just --list
 
+# Predefined templates (one command, fully provisioned):
+# Intro: 1 head, 2 compute, 1 storage + shared NFS /scratch (head + compute)
+just intro
+# Inter: 1 head, 2 compute, 4 storage, each with raw vdb/vdc drives for PFS labs
+just inter
+
 # Generate docker-compose.yml and cluster-config.yml from templates with current variables
 just generate-config
 
@@ -40,10 +46,13 @@ just down
 # Clean up everything including images, volumes, and networks
 just clean
 
-# Install Ansible collection required for dynamic inventory
-just install-collections
+# Provision the uv-managed Ansible environment (Python 3.12); run by just intro
+just ansible-setup
 
-# Run Ansible playbook to configure cluster nodes
+# Mount the storage node's NFS /export as /scratch on head + compute (Intro)
+just mount-scratch
+
+# Run Ansible playbook to configure cluster nodes (via the uv env)
 just ansible-run
 
 # Start cluster with custom number of compute nodes (1-10)

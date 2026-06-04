@@ -9,7 +9,7 @@ naming convention so scripts and labs stay consistent with that environment:
 {PREFIX}-{role}-{CC}-{N}
 ```
 
-- `PREFIX`: Name prefix (default: `asu`). Applied to **both** the container name
+- `PREFIX`: Name prefix (default: `lci`). Applied to **both** the container name
   and the hostname so they are identical.
 - `role`: `head`, `compute`, or `storage`
 - `CC`: **Virtual cluster number** — each student is assigned one (zero-padded,
@@ -19,18 +19,18 @@ naming convention so scripts and labs stay consistent with that environment:
   type (`-1`, `-2`, `-3`, ...). Not zero-padded.
 
 The container name and the hostname are always the same string. So for the
-assigned cluster number `04` with the default `asu` prefix, the nodes are
-`asu-head-04-1`, `asu-compute-04-1`, `asu-compute-04-2`, `asu-storage-04-1`,
-`asu-storage-04-2`, and so on.
+assigned cluster number `04` with the default `lci` prefix, the nodes are
+`lci-head-04-1`, `lci-compute-04-1`, `lci-compute-04-2`, `lci-storage-04-1`,
+`lci-storage-04-2`, and so on.
 
-### Default Cluster Configuration (cluster number `01`, prefix `asu`)
+### Default Cluster Configuration (cluster number `01`, prefix `lci`)
 
 | Role      | Container Name = Hostname | IP Address | SSH Port |
 | --------- | ------------------------- | ---------- | -------- |
-| Head      | `asu-head-01-1`           | 10.0.10.2  | 2222     |
-| Compute 1 | `asu-compute-01-1`        | 10.0.10.3  | -        |
-| Compute 2 | `asu-compute-01-2`        | 10.0.10.4  | -        |
-| Storage 1 | `asu-storage-01-1`        | 10.0.10.5  | -        |
+| Head      | `lci-head-01-1`           | 10.0.10.2  | 2222     |
+| Compute 1 | `lci-compute-01-1`        | 10.0.10.3  | -        |
+| Compute 2 | `lci-compute-01-2`        | 10.0.10.4  | -        |
+| Storage 1 | `lci-storage-01-1`        | 10.0.10.5  | -        |
 
 `CC` here is `01`; the trailing `N` distinguishes the two compute nodes (`-1`,
 `-2`).
@@ -44,13 +44,13 @@ CLUSTER_NUM := "04"
 ```
 
 This flows through `generate-config` into both the container name and the
-hostname (which are identical). With cluster number `04` (and the default `asu`
+hostname (which are identical). With cluster number `04` (and the default `lci`
 prefix):
 
-- `asu-head-04-1`
-- `asu-compute-04-1`
-- `asu-compute-04-2`
-- `asu-storage-04-1`
+- `lci-head-04-1`
+- `lci-compute-04-1`
+- `lci-compute-04-2`
+- `lci-storage-04-1`
 
 ### Changing the Prefix
 
@@ -80,21 +80,21 @@ number `01`.
 
 | Additional Compute | Container Name = Hostname | IP Address |
 | ------------------ | ------------------------- | ---------- |
-| Compute 3          | `asu-compute-01-3`        | 10.0.10.6  |
-| Compute 4          | `asu-compute-01-4`        | 10.0.10.7  |
-| Compute 5          | `asu-compute-01-5`        | 10.0.10.8  |
+| Compute 3          | `lci-compute-01-3`        | 10.0.10.6  |
+| Compute 4          | `lci-compute-01-4`        | 10.0.10.7  |
+| Compute 5          | `lci-compute-01-5`        | 10.0.10.8  |
 | ...                | ...                       | ...        |
-| Compute 10         | `asu-compute-01-10`       | 10.0.10.13 |
+| Compute 10         | `lci-compute-01-10`       | 10.0.10.13 |
 
 Compute formula: compute instance `N` for `N >= 3` → `NETWORK.(N+3)`. The `+3`
 offset skips over storage instance 1 at `NETWORK.5`.
 
 | Additional Storage | Container Name = Hostname | IP Address  |
 | ------------------ | ------------------------- | ----------- |
-| Storage 2          | `asu-storage-01-2`        | 10.0.10.240 |
-| Storage 3          | `asu-storage-01-3`        | 10.0.10.241 |
+| Storage 2          | `lci-storage-01-2`        | 10.0.10.240 |
+| Storage 3          | `lci-storage-01-3`        | 10.0.10.241 |
 | ...                | ...                       | ...         |
-| Storage 10         | `asu-storage-01-10`       | 10.0.10.248 |
+| Storage 10         | `lci-storage-01-10`       | 10.0.10.248 |
 
 Storage formula: storage instance `N` for `N >= 2` → `NETWORK.(238+N)`. Storage
 instance 1 stays at `NETWORK.5` for backward compatibility; storage instances
@@ -117,36 +117,36 @@ These examples assume cluster number `01`.
 ssh rocky@localhost -p 2222
 
 # From head node to other nodes (after sudo -i)
-ssh root@asu-compute-01-1
-ssh root@asu-compute-01-2
-ssh root@asu-storage-01-1
+ssh root@lci-compute-01-1
+ssh root@lci-compute-01-2
+ssh root@lci-storage-01-1
 ```
 
 **Docker Commands:**
 
 ```bash
 # View all cluster containers (default prefix)
-docker ps --filter "name=asu-"
+docker ps --filter "name=lci-"
 
 # Execute command in head node
-docker exec -it asu-head-01-1 bash
+docker exec -it lci-head-01-1 bash
 
 # View logs
-docker logs asu-head-01-1
-docker logs asu-compute-01-1
+docker logs lci-head-01-1
+docker logs lci-compute-01-1
 ```
 
 **Inside Containers:**
 
 ```bash
 # Ping other nodes by hostname
-ping asu-compute-01-1
-ping asu-compute-01-2
-ping asu-storage-01-1
+ping lci-compute-01-1
+ping lci-compute-01-2
+ping lci-storage-01-1
 
 # SSH between nodes (as root)
-ssh root@asu-compute-01-1
-ssh root@asu-storage-01-1
+ssh root@lci-compute-01-1
+ssh root@lci-storage-01-1
 ```
 
 ### Benefits of This Naming

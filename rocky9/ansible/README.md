@@ -13,8 +13,8 @@ Prerequisites:
 
 - ansible (core 2.16+ recommended; tested on 2.20)
 - community.docker collection
-  (`ansible-galaxy collection install community.docker`, or `just
-  install-collections`)
+  (`ansible-galaxy collection install community.docker`, or
+  `just install-collections`)
 - just (optional) for the convenience recipes
 
 How it works:
