@@ -1,11 +1,14 @@
 # Rocky Linux 10.1 HPC Cluster - Justfile
 # Multi-stage Docker build with Rocky Linux 10.1
-# Requires: just, docker, docker-compose, ansible
+# Requires: just, docker, docker-compose
+# NOTE: rocky10 ships the `just inter` template (raw PFS drives) only. The Intro
+# NFS /scratch template lives in rocky9/ (nfs-ganesha is unavailable on EL10).
 
 # Cluster configuration
 PORT := "2222"                    # SSH port for external access
-NETWORK := "10.0.10"              # Docker network subnet
-PREFIX := "lci"                  # Container name prefix (lci = Linux Containers Inc)
+NETWORK := "10.0.10"            # Docker network subnet
+PREFIX := "lci"                  # Container name prefix
+CLUSTER_NUM := "01"              # Virtual cluster number (per student, zero-padded). Names: {PREFIX}-{role}-{CLUSTER_NUM}-{N}
 
 # Scalability configuration
 COMPUTE_NODES := "2"              # Number of compute nodes (default: 2)
@@ -25,13 +28,14 @@ default:
     @just --list
 
 # Generate docker-compose.yml from template
-# Run this whenever changing Cluster config or Scalabiity config  in Justfile
+# Run this whenever changing PORT, NETWORK, or PREFIX
 generate-config:
 	@echo "Generating configuration files from templates..."
 	@cd docker && \
 	PORT={{PORT}} \
 	NETWORK={{NETWORK}} \
 	PREFIX={{PREFIX}} \
+	CLUSTER_NUM={{CLUSTER_NUM}} \
 	COMPUTE_MEMORY={{COMPUTE_MEMORY}} \
 	./gen-config.sh
 
@@ -43,23 +47,65 @@ build: generate-config
 up: generate-config
 	docker-compose -f docker/docker-compose.yml up -d
 
-# Stop cluster and remove all volumes (destroys data)
 # Includes the overlay (cluster-config.yml) if present so volumes for
-# compute-03..N and storage-02..M get cleaned up too.
+# compute-CC-3..N and storage-CC-2..M get cleaned up too.
+#
+# Docker Desktop sometimes reports "tried to kill container, but did not receive
+# an exit event" even though the container actually stopped — `compose down`
+# then errors before removing the containers/volumes. We tolerate that: if the
+# compose-down fails, force-remove any lingering PREFIX-* containers (plus the
+# stray compute_definition helper) and retry the down to sweep volumes/networks.
+#
+# Stop cluster and remove all volumes (destroys data)
 down:
 	#!/bin/bash
-	set -euo pipefail
+	set -uo pipefail
+	files=(-f docker/docker-compose.yml)
 	if [ -s docker/cluster-config.yml ] && grep -q '^services:' docker/cluster-config.yml; then
-	  docker-compose -f docker/docker-compose.yml -f docker/cluster-config.yml down --volumes --remove-orphans
-	else
-	  docker-compose -f docker/docker-compose.yml down --volumes --remove-orphans
+	  files+=(-f docker/cluster-config.yml)
 	fi
 
+	compose_down() {
+	  docker-compose "${files[@]}" down --volumes --remove-orphans
+	}
+
+	# Force-remove any cluster containers Docker Desktop left wedged/exited.
+	# Uses `--format table` + awk to read names (a Go-template format string would
+	# clash with just's own brace interpolation, even inside comments).
+	force_remove_stragglers() {
+	  local leftovers
+	  leftovers=$(docker ps -a --format "table" | sed '1d' | awk '{print $NF}' \
+	    | grep -E '^{{PREFIX}}-(head|compute|storage)-|^docker-compute_definition' || true)
+	  if [ -n "$leftovers" ]; then
+	    echo "Force-removing leftover containers:"
+	    echo "$leftovers" | sed 's/^/  - /'
+	    echo "$leftovers" | xargs -r docker rm -f >/dev/null 2>&1 || true
+	  fi
+	}
+
+	if compose_down; then
+	  exit 0
+	fi
+
+	echo ""
+	echo "compose down reported an error (likely the Docker Desktop exit-event"
+	echo "hiccup). Falling back to force-remove + retry..."
+	force_remove_stragglers
+	# Retry to sweep any volumes/networks the first pass could not reach.
+	if compose_down; then
+	  echo "Cleanup complete after fallback."
+	  exit 0
+	fi
+	# Last-resort: the containers are gone; report remaining state, don't hard-fail.
+	echo "compose down still errored; verify with: docker ps -a | grep {{PREFIX}}-"
+	force_remove_stragglers
+	exit 0
+
 # Initialize cluster config with N compute nodes and M storage nodes
-# Generates a docker-compose override file adding compute-03..N and
-# storage-02..M (the base compose already defines compute-01, compute-02,
-# and storage-01). When N<=2 and M<=1 the overlay is header-only and acts
-# as a no-op layer.
+# Generates a docker-compose override file adding compute-CC-3..N and
+# storage-CC-2..M (the base compose already defines compute-CC-1,
+# compute-CC-2, and storage-CC-1). When N<=2 and M<=1 the overlay is
+# header-only and acts as a no-op layer.
 init-cluster n m="1":
 	#!/bin/bash
 	set -euo pipefail
@@ -90,17 +136,19 @@ init-cluster n m="1":
 		echo 'services:'
 	} >> "$CONFIG_FILE"
 
-	# IP allocation per NAMING.md: compute-NN -> NETWORK.(NN+3) for NN>=3
-	# (.2=head, .3=compute-01, .4=compute-02, .5=storage-01, .6=compute-03, ...)
+	# IP allocation per NAMING.md: compute instance i -> NETWORK.(i+3) for i>=3
+	# (.2=head, .3=compute-CC-1, .4=compute-CC-2, .5=storage-CC-1, .6=compute-CC-3, ...)
 	if [ "$N" -ge 3 ]; then
 		for i in $(seq 3 "$N"); do
 			ip_octet=$((i + 3))
 			printf '  compute%d:\n' "$i" >> "$CONFIG_FILE"
 			printf '    build: ./compute\n' >> "$CONFIG_FILE"
-			printf '    container_name: {{PREFIX}}-compute-%02d\n' "$i" >> "$CONFIG_FILE"
-			printf '    hostname: compute-%02d\n' "$i" >> "$CONFIG_FILE"
+			printf '    container_name: {{PREFIX}}-compute-{{CLUSTER_NUM}}-%d\n' "$i" >> "$CONFIG_FILE"
+			printf '    hostname: {{PREFIX}}-compute-{{CLUSTER_NUM}}-%d\n' "$i" >> "$CONFIG_FILE"
 			printf '    privileged: true\n' >> "$CONFIG_FILE"
 			printf '    tty: true\n' >> "$CONFIG_FILE"
+			printf '    init: true\n' >> "$CONFIG_FILE"
+			printf '    stop_grace_period: 5s\n' >> "$CONFIG_FILE"
 			printf '    networks:\n' >> "$CONFIG_FILE"
 			printf '      hpcnet:\n' >> "$CONFIG_FILE"
 			printf '        ipv4_address: {{NETWORK}}.%d\n' "$ip_octet" >> "$CONFIG_FILE"
@@ -116,7 +164,7 @@ init-cluster n m="1":
 	fi
 
 	# Storage scaling: storage-NN for NN>=2 lives in the reserved range
-	# NETWORK.240..249 (storage-02=.240, storage-03=.241, ...). storage-01
+	# NETWORK.240..249 (storage-CC-2=.240, storage-CC-3=.241, ...). storage-CC-1
 	# stays at .5 in the base compose for backward compatibility. The
 	# DISABLE_NFS_AUTOSTART env var is honored by the storage entrypoint
 	# to skip NFS setup so these nodes come up bare for BeeGFS/Ceph use.
@@ -125,10 +173,12 @@ init-cluster n m="1":
 			ip_octet=$((238 + j))
 			printf '  storage%d:\n' "$j" >> "$CONFIG_FILE"
 			printf '    build: ./storage\n' >> "$CONFIG_FILE"
-			printf '    container_name: {{PREFIX}}-storage-%02d\n' "$j" >> "$CONFIG_FILE"
-			printf '    hostname: storage-%02d\n' "$j" >> "$CONFIG_FILE"
+			printf '    container_name: {{PREFIX}}-storage-{{CLUSTER_NUM}}-%d\n' "$j" >> "$CONFIG_FILE"
+			printf '    hostname: {{PREFIX}}-storage-{{CLUSTER_NUM}}-%d\n' "$j" >> "$CONFIG_FILE"
 			printf '    privileged: true\n' >> "$CONFIG_FILE"
 			printf '    tty: true\n' >> "$CONFIG_FILE"
+			printf '    init: true\n' >> "$CONFIG_FILE"
+			printf '    stop_grace_period: 5s\n' >> "$CONFIG_FILE"
 			printf '    networks:\n' >> "$CONFIG_FILE"
 			printf '      hpcnet:\n' >> "$CONFIG_FILE"
 			printf '        ipv4_address: {{NETWORK}}.%d\n' "$ip_octet" >> "$CONFIG_FILE"
@@ -159,15 +209,16 @@ init-cluster n m="1":
 		done
 	fi
 
+	CC="{{CLUSTER_NUM}}"
 	msg="Created docker/cluster-config.yml"
 	if [ "$N" -ge 3 ]; then
-		msg="$msg with compute-03..compute-$(printf '%02d' "$N")"
+		msg="$msg with compute-$CC-3..compute-$CC-$N"
 	fi
 	if [ "$M" -ge 2 ]; then
 		if [ "$N" -ge 3 ]; then
-			msg="$msg and storage-02..storage-$(printf '%02d' "$M")"
+			msg="$msg and storage-$CC-2..storage-$CC-$M"
 		else
-			msg="$msg with storage-02..storage-$(printf '%02d' "$M")"
+			msg="$msg with storage-$CC-2..storage-$CC-$M"
 		fi
 	fi
 	echo "$msg"
@@ -213,7 +264,7 @@ copy-ssh-key:
 	  docker exec -i "$c" bash -lc 'mkdir -p /root/.ssh && umask 077 && cat >> /root/.ssh/authorized_keys' < "$PUB"
 	done
 	
-	for head in $(docker ps --format "table" | sed '1d' | awk '{print $NF}' | grep -E '^{{PREFIX}}-head-01$'); do
+	for head in $(docker ps --format "table" | sed '1d' | awk '{print $NF}' | grep -E '^{{PREFIX}}-head-{{CLUSTER_NUM}}-1$'); do
 	  docker exec "$head" bash -lc 'if [ ! -f /root/.ssh/id_ed25519 ]; then ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519 -N "" -q; fi'
 	  HEAD_PUB=$(docker exec "$head" cat /root/.ssh/id_ed25519.pub 2>/dev/null || true)
 	  if [ -n "$HEAD_PUB" ]; then
@@ -229,20 +280,106 @@ copy-ssh-key:
 	echo "SSH to head: ssh rocky@localhost -p {{PORT}}"
 	echo "Then elevate: sudo -i  (no password required)"
 
-# Install Ansible collection for dynamic inventory
-install-collections:
-	ansible-galaxy collection install community.docker
-
-# Run Ansible playbook with optional syntax check
-ansible-run test="":
-	@if [ -n "{{test}}" ]; then \
-		ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i ansible/docker_containers.yml ansible/playbook.yml --syntax-check; \
-	else \
-		ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -i ansible/docker_containers.yml ansible/playbook.yml -v; \
-	fi
-
-# Quick setup: build, start, copy keys, show status
+# Quick setup: build, up, copy keys, show status
 setup: generate-config build up copy-ssh-key status
+
+# NOTE: The Intro template (NFS /scratch) is NOT available on Rocky 10 — the
+# nfs-ganesha userspace NFS server is not packaged for EL10 (and kernel nfsd is
+# unavailable under Docker Desktop). Use the rocky9/ variant for the shared
+# /scratch workflow. Rocky 10 provides `just inter` (raw PFS drives) below.
+
+# Generate the Inter overlay: 4 uniform storage nodes (storage-CC-1..4), each
+# bare (DISABLE_NFS_AUTOSTART=1) with two raw 5g loopback drives /dev/vdb and
+# /dev/vdc for PFS labs (BeeGFS/Lustre/Ceph). storage-CC-1 is the base-compose
+# `storage` service, so we override it here to add the extra-drive env + a
+# /drives volume so all four nodes are identical. Compute stays at the base 2.
+_inter-config:
+	#!/bin/bash
+	set -euo pipefail
+	CONFIG_FILE="docker/cluster-config.yml"
+	{
+		echo '# Auto-generated Inter overlay - do not edit by hand'
+		echo '# Regenerated by: just inter (via just _inter-config)'
+		echo '# Topology: 1 head, 2 compute, 4 storage; each storage node bare'
+		echo '# (no NFS) with raw /dev/vdb + /dev/vdc (5g, unformatted) for PFS labs.'
+		echo ''
+		echo 'services:'
+		echo ''
+		# Override storage-CC-1 (the base `storage` service): disable NFS and add
+		# the two extra drives so it matches storage-CC-2..4. environment/volumes
+		# in list form merge onto the base service.
+		echo '  storage:'
+		echo '    environment:'
+		echo '      - DISABLE_NFS_AUTOSTART=1'
+		echo '      - EXTRA_DRIVES=vdb vdc'
+		echo '      - EXTRA_DRIVE_SIZE_GB=5'
+		echo '    volumes:'
+		echo '      - storage-01-drives:/drives'
+		echo ''
+	} > "$CONFIG_FILE"
+
+	# storage-CC-2..4 live in the reserved range NETWORK.240.. (storage-CC-2=.240,
+	# -3=.241, -4=.242), matching init-cluster's allocation.
+	for j in 2 3 4; do
+		ip_octet=$((238 + j))
+		{
+			printf '  storage%d:\n' "$j"
+			printf '    build: ./storage\n'
+			printf '    container_name: {{PREFIX}}-storage-{{CLUSTER_NUM}}-%d\n' "$j"
+			printf '    hostname: {{PREFIX}}-storage-{{CLUSTER_NUM}}-%d\n' "$j"
+			printf '    privileged: true\n'
+			printf '    tty: true\n'
+			printf '    init: true\n'
+			printf '    stop_grace_period: 5s\n'
+			printf '    networks:\n'
+			printf '      hpcnet:\n'
+			printf '        ipv4_address: {{NETWORK}}.%d\n' "$ip_octet"
+			printf '    environment:\n'
+			printf '      - DISABLE_NFS_AUTOSTART=1\n'
+			printf '      - EXTRA_DRIVES=vdb vdc\n'
+			printf '      - EXTRA_DRIVE_SIZE_GB=5\n'
+			printf '    volumes:\n'
+			printf '      - storage-%02d-data:/export\n' "$j"
+			printf '      - storage-%02d-var:/var/log\n' "$j"
+			printf '      - storage-%02d-scratch:/data\n' "$j"
+			printf '      - storage-%02d-drives:/drives\n' "$j"
+			printf '    depends_on:\n'
+			printf '      - head\n'
+			echo ''
+		} >> "$CONFIG_FILE"
+	done
+
+	{
+		echo 'volumes:'
+		echo '  storage-01-drives:'
+		for j in 2 3 4; do
+			printf '  storage-%02d-data:\n' "$j"
+			printf '  storage-%02d-var:\n' "$j"
+			printf '  storage-%02d-scratch:\n' "$j"
+			printf '  storage-%02d-drives:\n' "$j"
+		done
+	} >> "$CONFIG_FILE"
+	echo "Created docker/cluster-config.yml (Inter: storage-{{CLUSTER_NUM}}-1..4, each with vdb/vdc)"
+
+# Launch the Inter template: 1 head, 2 compute, 4 storage. Each storage node is
+# bare (no NFS) and exposes two raw, unformatted 5g block devices /dev/vdb and
+# /dev/vdc (loopback-backed) for parallel-filesystem labs (BeeGFS/Lustre/Ceph).
+# One command: overlay -> build -> start -> wire SSH -> show status.
+inter:
+	#!/bin/bash
+	set -euo pipefail
+	echo "==> Inter template: 1 head, 2 compute, 4 storage (raw vdb/vdc drives)"
+	just generate-config
+	just _inter-config
+	docker-compose -f docker/docker-compose.yml -f docker/cluster-config.yml build
+	docker-compose -f docker/docker-compose.yml -f docker/cluster-config.yml up -d
+	just copy-ssh-key
+	just status
+	echo ""
+	echo "Inter cluster ready. Each storage-{{CLUSTER_NUM}}-N has raw /dev/vdb and"
+	echo "/dev/vdc (~5g, unformatted). Format them yourself for BeeGFS/Lustre/Ceph,"
+	echo "e.g.:  docker exec {{PREFIX}}-storage-{{CLUSTER_NUM}}-1 lsblk"
+	echo "       docker exec {{PREFIX}}-storage-{{CLUSTER_NUM}}-1 mkfs.xfs /dev/vdb"
 
 # View logs for all nodes or specific service
 logs service="":
@@ -260,7 +397,7 @@ logs service="":
 
 # Execute command in head node
 exec cmd="bash":
-	docker exec -i -t {{PREFIX}}-head-01 {{cmd}}
+	docker exec -i -t {{PREFIX}}-head-{{CLUSTER_NUM}}-1 {{cmd}}
 
 # Clean up everything: remove containers, images, volumes, networks
 clean:
@@ -271,7 +408,7 @@ clean:
 	  docker-compose -f docker/docker-compose.yml down --rmi all --volumes --remove-orphans || true
 	fi
 
-# Validate configuration: check docker-compose and ansible syntax
+# Validate configuration: check docker-compose syntax
 validate:
 	#!/bin/bash
 	set -euo pipefail
@@ -282,7 +419,6 @@ validate:
 	  docker-compose -f docker/docker-compose.yml config >/dev/null
 	  echo "OK: base compose"
 	fi
-	ansible-playbook -i ansible/docker_containers.yml ansible/playbook.yml --syntax-check
 
 # Format all markdown files to 80 character width (requires prettier)
 format-md:
