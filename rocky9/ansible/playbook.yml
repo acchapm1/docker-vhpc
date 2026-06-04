@@ -1,43 +1,132 @@
-- name: Configure HPC containers (example tasks)
+---
+# Provision the LCI cluster after `just up`:
+#   * Play 1 (all nodes): ensure nfs-utils is present and wire the local SSH
+#     public key into root's authorized_keys.
+#   * Play 2 (head + compute): mount the storage node's /export as /scratch over
+#     NFSv4, persistently — an /etc/fstab entry plus a supervisord boot hook
+#     (mount-scratch.sh) so /scratch re-mounts on every container start.
+#
+# Connection is via the Docker API (see containers.docker.yml). The connection
+# logs in as root, so no `become`/sudo is used (sudo is not even fully wired on
+# the compute image). The storage node runs a userspace NFS server (nfs-ganesha)
+# over NFSv4, so clients mount with vers=4 and need no rpc.statd.
+
+- name: Base packages and SSH key on every node
   hosts: all
   gather_facts: no
   vars:
+    ansible_python_interpreter: /usr/bin/python3
     packages:
-      - vim
-      - python3
       - nfs-utils
   tasks:
-    - name: Install packages
-      ansible.builtin.yum:
+    - name: Install base packages
+      ansible.builtin.dnf:
         name: "{{ packages }}"
         state: present
-      become: yes
-
-    - name: Ensure /shared exists
-      ansible.builtin.file:
-        path: /shared
-        state: directory
-        owner: root
-        group: root
-        mode: '0755'
-      become: yes
-
-    - name: Mount NFS share if storage reachable (idempotent)
-      ansible.builtin.shell: |
-        if ! mountpoint -q /shared; then
-          mount -t nfs {{ hostvars[inventory_hostname].ansible_host | default(inventory_hostname) }}:/export /shared || true
-        fi
-      args:
-        warn: false
-      become: yes
       ignore_errors: yes
 
-    - name: Copy local SSH public key to root authorized_keys (for passwordless)
+    - name: Copy local SSH public key to root authorized_keys (passwordless)
       ansible.builtin.copy:
-        src: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
+        # content= (not src=) so the file lookup's value is written verbatim;
+        # src= would treat the key string itself as a filename to locate.
+        content: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}\n"
         dest: /root/.ssh/authorized_keys
         owner: root
         group: root
         mode: '0600'
-      become: yes
+      ignore_errors: yes
+
+- name: Mount NFS /export -> /scratch on head + compute nodes
+  hosts: nfs_clients
+  gather_facts: no
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    # The NFS server is the first storage node. Prefer discovering it from the
+    # inventory (role_storage group); fall back to a name built from PREFIX and
+    # CLUSTER_NUM env vars so the play still works if discovery comes up empty.
+    nfs_prefix: "{{ lookup('ansible.builtin.env', 'LCI_PREFIX') | default('lci-', true) }}"
+    nfs_cluster_num: "{{ lookup('ansible.builtin.env', 'LCI_CLUSTER_NUM') | default('01', true) }}"
+    nfs_server_fallback: "{{ nfs_prefix }}storage-{{ nfs_cluster_num }}-1"
+    nfs_server: "{{ (groups['role_storage'] | default([]) | first) | default(nfs_server_fallback, true) }}"
+    nfs_export: /export
+    scratch_mount: /scratch
+    # NFSv4 against the userspace ganesha server. These containers have no
+    # systemd, so /scratch is mounted by `mount /scratch` (the boot hook) reading
+    # this fstab line — keep only options mount.nfs itself understands.
+    # nofail/_netdev keep manual `mount -a` resilient if the server is slow.
+    nfs_opts: "nfsvers=4,_netdev,nofail"
+    fstab_line: "{{ nfs_server }}:{{ nfs_export }} {{ scratch_mount }} nfs {{ nfs_opts }} 0 0"
+  tasks:
+    - name: Ensure /scratch mountpoint exists
+      ansible.builtin.file:
+        path: "{{ scratch_mount }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Add /scratch NFS entry to /etc/fstab (persistent)
+      ansible.builtin.lineinfile:
+        path: /etc/fstab
+        regexp: '[[:space:]]{{ scratch_mount }}[[:space:]]'
+        line: "{{ fstab_line }}"
+        create: yes
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Install mount-scratch boot helper
+      ansible.builtin.copy:
+        dest: /usr/local/bin/mount-scratch.sh
+        owner: root
+        group: root
+        mode: '0755'
+        content: |
+          #!/bin/bash
+          # Re-mount /scratch (NFSv4) on container start. Retries briefly so a
+          # slow-to-start NFS server is tolerated. Mount options come from the
+          # /etc/fstab entry written by the mount-scratch Ansible play.
+          for i in $(seq 1 15); do
+            if mountpoint -q {{ scratch_mount }}; then
+              exit 0
+            fi
+            mount {{ scratch_mount }} 2>/dev/null && exit 0
+            sleep 2
+          done
+          # Final attempt, surfacing any error to the supervisord log.
+          mountpoint -q {{ scratch_mount }} || mount {{ scratch_mount }}
+      become: false
+
+    - name: Register mount-scratch as a supervisord boot program
+      ansible.builtin.copy:
+        dest: /etc/supervisord.d/mount-scratch.ini
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          [program:mount-scratch]
+          command=/usr/local/bin/mount-scratch.sh
+          autostart=true
+          autorestart=false
+          startsecs=0
+          startretries=0
+          exitcodes=0
+          stdout_logfile=/var/log/mount-scratch.out
+          stderr_logfile=/var/log/mount-scratch.err
+      ignore_errors: yes
+
+    - name: Mount /scratch now (idempotent)
+      ansible.builtin.shell: |
+        if mountpoint -q {{ scratch_mount }}; then
+          echo "already-mounted"
+        else
+          mount {{ scratch_mount }} && echo "mounted"
+        fi
+      register: scratch_mount_result
+      changed_when: "'mounted' == (scratch_mount_result.stdout | default('') | trim)"
+      ignore_errors: yes
+
+    - name: Report /scratch mount status
+      ansible.builtin.shell: "mountpoint {{ scratch_mount }}"
+      changed_when: false
       ignore_errors: yes

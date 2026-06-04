@@ -1,0 +1,44 @@
+---
+# Dynamic Docker inventory for Ansible using community.docker.docker_containers.
+# Discovers containers on the local Docker daemon and exposes them as hosts.
+#
+# Connection: docker-api — Ansible talks to each container straight through the
+# Docker socket (no in-container sshd or mapped port needed). The host name is
+# the container name, which the connection plugin uses directly.
+#
+# Filtering: include only this cluster's containers (names start with the LCI
+# PREFIX, default `lci-`). Override at runtime with the LCI_PREFIX env var, e.g.
+#   LCI_PREFIX=myprefix- ansible-playbook -i ansible/containers.docker.yml ...
+#
+# NOTE: the filename must end in `docker.yml`/`docker.yaml` — the
+# community.docker.docker_containers plugin only verifies files with that
+# suffix. Renaming it away from that breaks dynamic inventory discovery.
+plugin: community.docker.docker_containers
+docker_host: unix:///var/run/docker.sock
+connection_type: docker-api
+strict: false
+verbose_output: true
+
+# Keep only containers whose name begins with the configured prefix.
+# docker_name carries a leading '/', so we strip it before comparing.
+filters:
+  - include: >-
+      docker_name[1:].startswith(lookup('ansible.builtin.env', 'LCI_PREFIX') | default('lci-', true))
+  - exclude: true
+
+# Expose a clean container name and a role tag for grouping/targeting.
+compose:
+  container_name: docker_name[1:]
+  node_role: docker_name[1:].split('-')[1] | default('unknown', true)
+
+# Role-based groups so plays can target head/compute vs storage.
+#   nfs_clients group = head + compute (mount /scratch there)
+#   storage group     = the NFS server node(s)
+keyed_groups:
+  - prefix: role
+    key: node_role
+    separator: "_"
+  - prefix: ""
+    key: >-
+      'nfs_clients' if node_role in ['head', 'compute'] else node_role
+    separator: ""
