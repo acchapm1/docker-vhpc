@@ -45,17 +45,59 @@ build: generate-config
 up: generate-config
 	docker-compose -f docker/docker-compose.yml up -d
 
-# Stop cluster and remove all volumes (destroys data)
 # Includes the overlay (cluster-config.yml) if present so volumes for
 # compute-CC-3..N and storage-CC-2..M get cleaned up too.
+#
+# Docker Desktop sometimes reports "tried to kill container, but did not receive
+# an exit event" even though the container actually stopped — `compose down`
+# then errors before removing the containers/volumes. We tolerate that: if the
+# compose-down fails, force-remove any lingering PREFIX-* containers (plus the
+# stray compute_definition helper) and retry the down to sweep volumes/networks.
+#
+# Stop cluster and remove all volumes (destroys data)
 down:
 	#!/bin/bash
-	set -euo pipefail
+	set -uo pipefail
+	files=(-f docker/docker-compose.yml)
 	if [ -s docker/cluster-config.yml ] && grep -q '^services:' docker/cluster-config.yml; then
-	  docker-compose -f docker/docker-compose.yml -f docker/cluster-config.yml down --volumes --remove-orphans
-	else
-	  docker-compose -f docker/docker-compose.yml down --volumes --remove-orphans
+	  files+=(-f docker/cluster-config.yml)
 	fi
+
+	compose_down() {
+	  docker-compose "${files[@]}" down --volumes --remove-orphans
+	}
+
+	# Force-remove any cluster containers Docker Desktop left wedged/exited.
+	# Uses `--format table` + awk to read names (a Go-template format string would
+	# clash with just's own brace interpolation, even inside comments).
+	force_remove_stragglers() {
+	  local leftovers
+	  leftovers=$(docker ps -a --format "table" | sed '1d' | awk '{print $NF}' \
+	    | grep -E '^{{PREFIX}}-(head|compute|storage)-|^docker-compute_definition' || true)
+	  if [ -n "$leftovers" ]; then
+	    echo "Force-removing leftover containers:"
+	    echo "$leftovers" | sed 's/^/  - /'
+	    echo "$leftovers" | xargs -r docker rm -f >/dev/null 2>&1 || true
+	  fi
+	}
+
+	if compose_down; then
+	  exit 0
+	fi
+
+	echo ""
+	echo "compose down reported an error (likely the Docker Desktop exit-event"
+	echo "hiccup). Falling back to force-remove + retry..."
+	force_remove_stragglers
+	# Retry to sweep any volumes/networks the first pass could not reach.
+	if compose_down; then
+	  echo "Cleanup complete after fallback."
+	  exit 0
+	fi
+	# Last-resort: the containers are gone; report remaining state, don't hard-fail.
+	echo "compose down still errored; verify with: docker ps -a | grep {{PREFIX}}-"
+	force_remove_stragglers
+	exit 0
 
 # Initialize cluster config with N compute nodes and M storage nodes
 # Generates a docker-compose override file adding compute-CC-3..N and
