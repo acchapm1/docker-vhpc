@@ -1,16 +1,21 @@
 # Centralized Configuration Guide
 
-This HPC cluster now uses centralized configuration variables in the Justfile.
+This HPC cluster uses centralized configuration variables in the Justfile.
 
-## Configuration Variables (Edit in Justfile, lines 6-15)
+## Configuration Variables (Edit at the top of the Justfile)
 
 ### Core Variables
 
 ```bash
 PORT := "2222"           # SSH port for external access
 NETWORK := "10.0.10"     # Docker network subnet (first 3 octets)
-VARIANT := "lci"         # Container name prefix
+PREFIX := "lci"          # Container name prefix
+CLUSTER_NUM := "01"      # Virtual cluster number (per student, zero-padded)
 ```
+
+Node names follow the LCI lab convention `{PREFIX}-{role}-{CC}-{N}`, where `CC`
+is `CLUSTER_NUM` and `N` is the per-role instance number. See
+[NAMING.md](NAMING.md) for the full breakdown.
 
 ### Scalability Variables
 
@@ -24,18 +29,18 @@ ENABLE_MONITORING := "false"  # Include prometheus/grafana (future feature)
 
 ## How It Works
 
-1. **Edit variables** in Justfile (lines 6-15)
+1. **Edit variables** at the top of the Justfile
 2. **Run**: `just generate-config` (automatically called by build/up/setup)
 3. **Generated files**:
-   - `multi-stage/docker-compose.yml` - Main compose file with your settings
-   - `multi-stage/cluster-config.yml` - Additional node configurations
+   - `docker/docker-compose.yml` - Main compose file with your settings
+   - `docker/cluster-config.yml` - Additional node configurations
 
 ## Quick Examples
 
 ### Example 1: Change SSH Port
 
 ```bash
-# Edit Justfile line 6:
+# Edit the PORT variable:
 PORT := "2244"
 
 # Then rebuild:
@@ -45,8 +50,8 @@ just setup
 ### Example 2: Different Network
 
 ```bash
-# Edit Justfile line 7:
-NETWORK := "172.20.5"
+# Edit the NETWORK variable:
+NETWORK := "172.29.10"
 
 # Then rebuild:
 just setup
@@ -55,7 +60,7 @@ just setup
 ### Example 3: More Compute Nodes
 
 ```bash
-# Edit Justfile line 11:
+# Edit the COMPUTE_NODES variable:
 COMPUTE_NODES := "5"
 
 # Or use command line:
@@ -68,24 +73,40 @@ just setup
 ### Example 4: More Memory for Compute Nodes
 
 ```bash
-# Edit Justfile line 13:
+# Edit the COMPUTE_MEMORY variable:
 COMPUTE_MEMORY := "4g"
 
 # Then rebuild:
 just setup
 ```
 
-### Example 5: Custom Naming
+### Example 5: Set Your Cluster Number
 
 ```bash
-# Edit Justfile line 8:
-VARIANT := "mycluster"
+# Edit the CLUSTER_NUM variable to your assigned number:
+CLUSTER_NUM := "04"
 
-# Container names will be:
-# mycluster-hpc-head
-# mycluster-hpc-compute1
-# mycluster-hpc-compute2
-# mycluster-hpc-storage
+# Node names will be (default prefix lci):
+# lci-head-04-1
+# lci-compute-04-1
+# lci-compute-04-2
+# lci-storage-04-1
+
+# Then rebuild:
+just setup
+```
+
+### Example 6: Custom Prefix
+
+```bash
+# Edit the PREFIX variable:
+PREFIX := "lci"
+
+# With CLUSTER_NUM := "02", container names will be:
+# lci-head-02-1
+# lci-compute-02-1
+# lci-compute-02-2
+# lci-storage-02-1
 
 # Then rebuild:
 just setup
@@ -95,7 +116,7 @@ just setup
 
 All variables automatically propagate to:
 
-- ✅ Container names (VARIANT)
+- ✅ Container and host names (PREFIX, CLUSTER_NUM)
 - ✅ Network configuration (NETWORK)
 - ✅ SSH port mapping (PORT)
 - ✅ Memory limits (COMPUTE_MEMORY)
@@ -132,8 +153,8 @@ STORAGE_NODES := "3"
 just up-with 3 3   # 3 compute + 3 storage nodes
 ```
 
-storage-02..M come up bare (no NFS), ready for you to install BeeGFS or
-Ceph on `/data`. See [HOWTO.md](HOWTO.md) for the layout.
+storage-CC-2..M come up bare (no NFS), ready for you to install BeeGFS or Ceph
+on `/data`. See [HOWTO.md](HOWTO.md) for the layout.
 
 ## Commands
 
@@ -154,11 +175,11 @@ just --list  # Shows all variables at top
 ## Files Modified by Configuration
 
 - `Justfile` - Source of truth (edit here only)
-- `multi-stage/docker-compose.yml` - Generated from template
-- `multi-stage/cluster-config.yml` - Generated from template
-- `multi-stage/docker-compose.yml.template` - Template file
-- `multi-stage/cluster-config.yml.template` - Template file
-- `multi-stage/gen-config.sh` - Generation helper script
+- `docker/docker-compose.yml` - Generated from template
+- `docker/cluster-config.yml` - Generated from template
+- `docker/docker-compose.yml.template` - Template file
+- `docker/cluster-config.yml.template` - Template file
+- `docker/gen-config.sh` - Generation helper script
 
 ## Benefits
 

@@ -9,8 +9,12 @@ Includes tmux, neovim/nvim, vim, and wget.
 - Docker and Docker Compose
 - Just (task runner): `brew install just` or see
   [Just](https://github.com/casey/just)
-- Ansible 2.14+ (optional, for configuration management)
-- SSH key pair for cluster access
+- SSH key pair for cluster access (see below)
+
+> **Rocky 10 note:** this variant ships the **`just inter`** template only. The
+> **`just intro`** (NFS `/scratch`) template is **not available on Rocky 10** —
+> `nfs-ganesha` is not packaged for EL10. Use the [`rocky9/`](../rocky9/) variant
+> for the shared-scratch workflow. See [INTER.md](INTER.md) for details.
 
 ## SSH Key Setup
 
@@ -100,12 +104,48 @@ ssh -i ~/.ssh/id_ed25519 rocky@localhost -p 2222 'hostname'
 # Show all available commands
 just --list
 
-# Build, start, and setup SSH keys
+# Build, start, and setup SSH keys (base topology)
 just setup
 
 # Or run individually:
 just build && just up && just copy-ssh-key && just status
 ```
+
+## Predefined Templates
+
+Rocky 10 ships one single-command template, **`just inter`**. (The NFS
+`/scratch` **`just intro`** template is rocky9-only — `nfs-ganesha` is not
+packaged for EL10; see [INTER.md](INTER.md).) The recipe does everything:
+generate config → build → start → wire passwordless SSH → provision storage →
+show status.
+
+### `just inter` — raw drives for parallel filesystems
+
+```bash
+just inter
+```
+
+Brings up **1 head + 2 compute + 4 storage**. Each storage node is bare (no NFS)
+and exposes two **raw, unformatted 5g block devices**, `/dev/vdb` and
+`/dev/vdc`, backed by loopback images. They are intended for hands-on
+parallel-filesystem labs (BeeGFS, Lustre, Ceph) — you format and configure them
+yourself. Stable device names (`/dev/vdb`/`/dev/vdc`) are guaranteed regardless
+of which host loop device each lands on. Drives and their data persist across
+`docker restart`.
+
+```bash
+# Inspect the raw drives on any storage node (lci-storage-01-1 .. -4):
+docker exec lci-storage-01-1 lsblk
+docker exec lci-storage-01-1 ls -l /dev/vdb /dev/vdc
+docker exec lci-storage-01-1 blkid /dev/vdb        # empty output => raw
+
+# Format them yourself — they ship raw:
+docker exec lci-storage-01-1 mkfs.xfs /dev/vdb     # XFS (BeeGFS/Lustre OSD)
+docker exec lci-storage-01-1 pvcreate /dev/vdc     # LVM PV (LVM/Ceph)
+```
+
+No `/scratch`/NFS mount is provisioned — the storage nodes are PFS targets, not
+a shared scratch source.
 
 ## Customizing Cluster Size
 
@@ -114,15 +154,21 @@ just build && just up && just copy-ssh-key && just status
 By default, each cluster includes:
 
 - 1 head node (login/management node)
-- 2 compute nodes (compute1, compute2)
-- 1 storage node (NFS server)
+- 2 compute nodes (lci-compute-01-1, lci-compute-01-2)
+- 1 storage node (NFS server, lci-storage-01-1)
+
+Node names follow the LCI convention `{PREFIX}-{role}-{CC}-{N}`, where `CC` is
+your assigned cluster number. The hostname matches the container name exactly.
+Set the prefix via `PREFIX` and your cluster number via `CLUSTER_NUM` in the
+Justfile (see [NAMING.md](NAMING.md)). Examples below use the default prefix
+`lci` and cluster number `01`.
 
 ### Option 1: Use Just Helper (Easiest)
 
 Start the cluster with a custom number of compute nodes:
 
 ```bash
-just up-with 4   # Starts with 4 compute nodes (compute1-4)
+just up-with 4   # Starts with 4 compute nodes (compute-01-1 .. compute-01-4)
 ```
 
 This automatically generates a `cluster-config.yml` file and starts the cluster
@@ -130,8 +176,8 @@ with your desired node count (1-10 nodes supported).
 
 ### Option 2: Inspect the generated overlay
 
-`just up-with` calls `just init-cluster N [M]` under the hood, which
-writes `docker/cluster-config.yml` and is then merged with the base
+`just up-with` calls `just init-cluster N [M]` under the hood, which writes
+`docker/cluster-config.yml` and is then merged with the base
 `docker-compose.yml`. To inspect what will be started without launching:
 
 ```bash
@@ -142,10 +188,10 @@ docker-compose -f docker/docker-compose.yml -f docker/cluster-config.yml config
 `cluster-config.yml` is a generated file — do not edit it by hand. Re-run
 `init-cluster` (or `up-with`) to regenerate.
 
-**Available IP ranges:**
+**Available IP ranges (cluster number `01`):**
 
-- hpc-rocky10: 10.0.10.2-10.0.10.254 (head=.2, compute-01..02=.3-.4,
-  storage-01=.5, compute-03..10=.6-.13, storage-02..10=.240-.248)
+- 10.0.10.2-10.0.10.254 (head=.2, compute-01-1..2=.3-.4, storage-01-1=.5,
+  compute-01-3..10=.6-.13, storage-01-2..10=.240-.248)
 
 ### Adding Storage Nodes
 
@@ -155,20 +201,20 @@ Pass a second argument to `up-with` to scale the storage tier:
 just up-with 3 3    # 3 compute nodes + 3 storage nodes
 ```
 
-storage-01 keeps running an NFS server (the default cluster behavior).
-storage-02..M come up with `DISABLE_NFS_AUTOSTART=1` — sshd is reachable,
-`/data` is an empty scratch volume, and no NFS server is started. These
-bare nodes are intended for installing a distributed filesystem (BeeGFS,
-Ceph, etc.) under your own configuration.
+storage-01-1 keeps running an NFS server (the default cluster behavior).
+storage-01-2..M come up with `DISABLE_NFS_AUTOSTART=1` — sshd is reachable,
+`/data` is an empty scratch volume, and no NFS server is started. These bare
+nodes are intended for installing a distributed filesystem (BeeGFS, Ceph, etc.)
+under your own configuration.
 
-Storage-02..M use the reserved IP range `NETWORK.240-249` (see
+storage-01-2..M use the reserved IP range `NETWORK.240-249` (see
 [NAMING.md](NAMING.md)) so they never collide with compute nodes.
 
 ### Maximum Node Count
 
-- **Compute nodes:** Up to 10 (compute-01..compute-10, IPs `NETWORK.3-13`)
-- **Storage nodes:** Up to 10 (storage-01 at `NETWORK.5`, storage-02..10
-  at `NETWORK.240-248`)
+- **Compute nodes:** Up to 10 (compute-CC-1..compute-CC-10, IPs `NETWORK.3-13`)
+- **Storage nodes:** Up to 10 (storage-CC-1 at `NETWORK.5`, storage-CC-2..10 at
+  `NETWORK.240-248`)
 - **Head nodes:** 1 (cannot be scaled, contains management functions)
 
 ### Checking Cluster Status
@@ -179,7 +225,7 @@ View running nodes:
 just status
 ```
 
-List all containers:
+List all containers (default prefix `lci`):
 
 ```bash
 docker ps --filter "name=lci-"
@@ -195,7 +241,7 @@ docker ps --filter "name=lci-"
 **Problem: Container name collision**
 
 - Each `container_name` must be unique
-- Format: `lci-{role}-{NN}` (e.g., lci-compute-03, lci-storage-02)
+- Format: `{PREFIX}-{role}-{CC}-{N}` (e.g., lci-compute-01-3, lci-storage-01-2)
 
 **Problem: Service not starting**
 
@@ -204,12 +250,18 @@ docker ps --filter "name=lci-"
 
 ## Cluster Architecture
 
-| Node     | Hostname   | Container Name | IP Address | SSH Port | Role         |
-| -------- | ---------- | -------------- | ---------- | -------- | ------------ |
-| head     | head-01    | lci-head-01    | 10.0.10.2  | 2222     | Login node   |
-| compute1 | compute-01 | lci-compute-01 | 10.0.10.3  | -        | Compute node |
-| compute2 | compute-02 | lci-compute-02 | 10.0.10.4  | -        | Compute node |
-| storage  | storage-01 | lci-storage-01 | 10.0.10.5  | -        | NFS/Storage  |
+Defaults below use prefix `lci` and cluster number `01`.
+
+| Node     | Container Name = Hostname | IP Address | SSH Port | Role         |
+| -------- | ------------------------- | ---------- | -------- | ------------ |
+| head     | lci-head-01-1             | 10.0.10.2  | 2222     | Login node   |
+| compute1 | lci-compute-01-1          | 10.0.10.3  | -        | Compute node |
+| compute2 | lci-compute-01-2          | 10.0.10.4  | -        | Compute node |
+| storage  | lci-storage-01-1          | 10.0.10.5  | -        | NFS/Storage  |
+
+Under `just inter`, three more storage nodes are added: `lci-storage-01-2`
+(10.0.10.240), `lci-storage-01-3` (10.0.10.241), `lci-storage-01-4`
+(10.0.10.242).
 
 ### Storage Node Access
 
@@ -218,9 +270,9 @@ The storage node has SSH access from the head node for testing storage solutions
 
 ```bash
 # After SSHing to head node as rocky and elevating to root
-ssh root@compute-01
-ssh root@compute-02
-ssh root@storage-01
+ssh root@lci-compute-01-1
+ssh root@lci-compute-01-2
+ssh root@lci-storage-01-1
 ```
 
 The `rocky` user cannot SSH between nodes - only `root` has inter-node access.
@@ -232,10 +284,10 @@ The `rocky` user cannot SSH between nodes - only `root` has inter-node access.
 docker ps
 
 # View container logs
-docker logs lci-head-01
+docker logs lci-head-01-1
 
 # Execute command in container
-docker exec -it lci-head-01 bash
+docker exec -it lci-head-01-1 bash
 
 # Stop containers
 just down
@@ -244,20 +296,12 @@ just down
 just clean
 ```
 
-## Ansible Configuration (Optional)
-
-Run Ansible playbook after containers are up:
-
-```bash
-just ansible-run
-```
-
 ## Troubleshooting
 
 ### SSH connection refused
 
 - Ensure containers are running: `docker ps`
-- Check if SSH is running: `docker logs lci-head-01`
+- Check if SSH is running: `docker logs lci-head-01-1`
 - Re-run SSH key setup: `just copy-ssh-key`
 
 ### Permission denied
@@ -286,11 +330,11 @@ just ansible-run
 These virtual clusters are **ephemeral** - changes do not persist across
 rebuilds:
 
-| Action                | Configs (/etc) | Data (/var) | Installed Software (/usr) |
-| --------------------- | -------------- | ----------- | ------------------------- |
-| Container restart     | Preserved      | Preserved   | Preserved                 |
-| `just down` / `up-ms` | **Lost**       | **Lost**    | **Lost**                  |
-| Image rebuild         | **Lost**       | **Lost**    | **Lost**                  |
+| Action                  | Configs (/etc) | Data (/var) | Installed Software (/usr) |
+| ----------------------- | -------------- | ----------- | ------------------------- |
+| Container restart       | Preserved      | Preserved   | Preserved                 |
+| `just down` / `just up` | **Lost**       | **Lost**    | **Lost**                  |
+| Image rebuild           | **Lost**       | **Lost**    | **Lost**                  |
 
 ### For Persistent Changes
 
@@ -307,21 +351,12 @@ If you need to test changes before baking them into images:
 
 ```bash
 # Install software temporarily (lost on container recreation)
-docker exec -it lci-head-01 dnf -y install <package>
+docker exec -it lci-head-01-1 dnf -y install <package>
 
 # Make config changes (persists until volume is removed)
-docker exec -it lci-head-01 vi /etc/some/config
+docker exec -it lci-head-01-1 vi /etc/some/config
 ```
 
-### Using Ansible for Configuration
-
-For reproducible configuration, use Ansible to apply changes after each cluster
-start:
-
-```bash
-# Add your tasks to ansible/playbook.yml
-just ansible-run
-```
-
-This approach ensures configuration is applied consistently after every cluster
-rebuild.
+For reproducible configuration, bake changes into the Dockerfiles and rebuild
+(`just build && just up`). The rocky9 variant additionally offers an Ansible
+workflow; rocky10 does not ship one.
