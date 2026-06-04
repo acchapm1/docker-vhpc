@@ -3,7 +3,7 @@
 # Includes head node, compute nodes, and storage nodes
 # All configuration is centralized in the Justfile for easy customization
 # NOTE: rocky10 ships `just inter` only; the NFS /scratch Intro template is in
-# rocky9/ (nfs-ganesha is unavailable on EL10 — see INTER.md)
+# rocky9/ (nfs-ganesha is unavailable on EL10 — see INTRO.md)
 
 # Show all available just commands
 just --list
