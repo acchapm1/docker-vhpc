@@ -9,7 +9,7 @@ This HPC cluster uses centralized configuration variables in the Justfile.
 ```bash
 PORT := "2222"           # SSH port for external access
 NETWORK := "10.0.10"     # Docker network subnet (first 3 octets)
-PREFIX := "asu"          # Container name prefix
+PREFIX := "lci"          # Container name prefix
 CLUSTER_NUM := "01"      # Virtual cluster number (per student, zero-padded)
 ```
 
@@ -86,11 +86,11 @@ just setup
 # Edit the CLUSTER_NUM variable to your assigned number:
 CLUSTER_NUM := "04"
 
-# Node names will be (default prefix asu):
-# asu-head-04-1
-# asu-compute-04-1
-# asu-compute-04-2
-# asu-storage-04-1
+# Node names will be (default prefix lci):
+# lci-head-04-1
+# lci-compute-04-1
+# lci-compute-04-2
+# lci-storage-04-1
 
 # Then rebuild:
 just setup

@@ -9,8 +9,11 @@ Includes tmux, neovim/nvim, vim, and wget.
 - Docker and Docker Compose
 - Just (task runner): `brew install just` or see
   [Just](https://github.com/casey/just)
-- Ansible 2.14+ (optional, for configuration management)
-- SSH key pair for cluster access
+- **uv** (https://docs.astral.sh/uv/) — required for the `just intro` NFS
+  `/scratch` step, which runs Ansible from a self-contained, uv-managed Python
+  3.12 environment. `just intro` sets it up automatically
+  (`just ansible-setup`); no system-wide Ansible install is needed.
+- SSH key pair for cluster access (see below)
 
 ## SSH Key Setup
 
@@ -100,12 +103,69 @@ ssh -i ~/.ssh/id_ed25519 rocky@localhost -p 2222 'hostname'
 # Show all available commands
 just --list
 
-# Build, start, and setup SSH keys
+# Build, start, and setup SSH keys (base topology)
 just setup
 
 # Or run individually:
 just build && just up && just copy-ssh-key && just status
 ```
+
+## Predefined Templates
+
+For the two common lab scenarios, use a single-command template instead of
+wiring things up by hand. Each does everything: generate config → build → start
+→ wire passwordless SSH → provision storage → show status.
+
+### `just intro` — shared NFS `/scratch`
+
+```bash
+just intro
+```
+
+Brings up **1 head + 2 compute + 1 storage**. The storage node serves `/export`
+over NFSv4 (userspace nfs-ganesha), auto-mounted as **`/scratch`** on the head
+and both compute nodes. The mount is persistent (re-mounts after
+`docker restart`).
+
+```bash
+# Verify the shared scratch round-trips across nodes:
+docker exec lci-head-01-1     bash -lc 'echo hi > /scratch/test.txt'
+docker exec lci-compute-01-1  cat /scratch/test.txt    # -> hi
+docker exec lci-compute-01-2  cat /scratch/test.txt    # -> hi
+```
+
+Requires **uv** (see Prerequisites) — the `/scratch` mount is applied with
+Ansible from a uv-managed Python 3.12 environment that `just intro` provisions
+automatically. To re-apply the mount on its own: `just mount-scratch`.
+
+### `just inter` — raw drives for parallel filesystems
+
+```bash
+just inter
+```
+
+Brings up **1 head + 2 compute + 4 storage**. Each storage node is bare (no NFS)
+and exposes two **raw, unformatted 5g block devices**, `/dev/vdb` and
+`/dev/vdc`, backed by loopback images. They are intended for hands-on
+parallel-filesystem labs (BeeGFS, Lustre, Ceph) — you format and configure them
+yourself. Stable device names (`/dev/vdb`/`/dev/vdc`) are guaranteed regardless
+of which host loop device each lands on. Drives and their data persist across
+`docker restart`.
+
+```bash
+# Inspect the raw drives on any storage node (lci-storage-01-1 .. -4):
+docker exec lci-storage-01-1 lsblk
+docker exec lci-storage-01-1 ls -l /dev/vdb /dev/vdc
+docker exec lci-storage-01-1 blkid /dev/vdb        # empty output => raw
+
+# Format them yourself — they ship raw:
+docker exec lci-storage-01-1 mkfs.xfs /dev/vdb     # XFS (BeeGFS/Lustre OSD)
+docker exec lci-storage-01-1 pvcreate /dev/vdc     # LVM PV (LVM/Ceph)
+```
+
+No `/scratch`/NFS mount is provisioned for Inter — the storage nodes are PFS
+targets, not a shared scratch source, so `just inter` does not require
+uv/Ansible.
 
 ## Customizing Cluster Size
 
@@ -114,14 +174,14 @@ just build && just up && just copy-ssh-key && just status
 By default, each cluster includes:
 
 - 1 head node (login/management node)
-- 2 compute nodes (asu-compute-01-1, asu-compute-01-2)
-- 1 storage node (NFS server, asu-storage-01-1)
+- 2 compute nodes (lci-compute-01-1, lci-compute-01-2)
+- 1 storage node (NFS server, lci-storage-01-1)
 
 Node names follow the LCI convention `{PREFIX}-{role}-{CC}-{N}`, where `CC` is
 your assigned cluster number. The hostname matches the container name exactly.
 Set the prefix via `PREFIX` and your cluster number via `CLUSTER_NUM` in the
 Justfile (see [NAMING.md](NAMING.md)). Examples below use the default prefix
-`asu` and cluster number `01`.
+`lci` and cluster number `01`.
 
 ### Option 1: Use Just Helper (Easiest)
 
@@ -185,10 +245,10 @@ View running nodes:
 just status
 ```
 
-List all containers (default prefix `asu`):
+List all containers (default prefix `lci`):
 
 ```bash
-docker ps --filter "name=asu-"
+docker ps --filter "name=lci-"
 ```
 
 ### Troubleshooting Scale Issues
@@ -201,7 +261,7 @@ docker ps --filter "name=asu-"
 **Problem: Container name collision**
 
 - Each `container_name` must be unique
-- Format: `{PREFIX}-{role}-{CC}-{N}` (e.g., asu-compute-01-3, asu-storage-01-2)
+- Format: `{PREFIX}-{role}-{CC}-{N}` (e.g., lci-compute-01-3, lci-storage-01-2)
 
 **Problem: Service not starting**
 
@@ -210,14 +270,18 @@ docker ps --filter "name=asu-"
 
 ## Cluster Architecture
 
-Defaults below use prefix `asu` and cluster number `01`.
+Defaults below use prefix `lci` and cluster number `01`.
 
 | Node     | Container Name = Hostname | IP Address | SSH Port | Role         |
 | -------- | ------------------------- | ---------- | -------- | ------------ |
-| head     | asu-head-01-1             | 10.0.10.2  | 2222     | Login node   |
-| compute1 | asu-compute-01-1          | 10.0.10.3  | -        | Compute node |
-| compute2 | asu-compute-01-2          | 10.0.10.4  | -        | Compute node |
-| storage  | asu-storage-01-1          | 10.0.10.5  | -        | NFS/Storage  |
+| head     | lci-head-01-1             | 10.0.10.2  | 2222     | Login node   |
+| compute1 | lci-compute-01-1          | 10.0.10.3  | -        | Compute node |
+| compute2 | lci-compute-01-2          | 10.0.10.4  | -        | Compute node |
+| storage  | lci-storage-01-1          | 10.0.10.5  | -        | NFS/Storage  |
+
+Under `just inter`, three more storage nodes are added: `lci-storage-01-2`
+(10.0.10.240), `lci-storage-01-3` (10.0.10.241), `lci-storage-01-4`
+(10.0.10.242).
 
 ### Storage Node Access
 
@@ -226,9 +290,9 @@ The storage node has SSH access from the head node for testing storage solutions
 
 ```bash
 # After SSHing to head node as rocky and elevating to root
-ssh root@asu-compute-01-1
-ssh root@asu-compute-01-2
-ssh root@asu-storage-01-1
+ssh root@lci-compute-01-1
+ssh root@lci-compute-01-2
+ssh root@lci-storage-01-1
 ```
 
 The `rocky` user cannot SSH between nodes - only `root` has inter-node access.
@@ -240,10 +304,10 @@ The `rocky` user cannot SSH between nodes - only `root` has inter-node access.
 docker ps
 
 # View container logs
-docker logs asu-head-01-1
+docker logs lci-head-01-1
 
 # Execute command in container
-docker exec -it asu-head-01-1 bash
+docker exec -it lci-head-01-1 bash
 
 # Stop containers
 just down
@@ -254,18 +318,25 @@ just clean
 
 ## Ansible Configuration (Optional)
 
-Run Ansible playbook after containers are up:
+Ansible provisions the NFS `/scratch` mount for `just intro`, and you can use it
+for your own post-start configuration. It runs from a self-contained uv-managed
+Python 3.12 environment in `ansible/` (set up by `just ansible-setup`, and
+automatically by `just intro`) — no system Ansible needed.
 
 ```bash
-just ansible-run
+just mount-scratch   # apply the /scratch NFS mount (head + compute)
+just ansible-run     # run the full playbook against running containers
 ```
+
+See [ansible/README.md](ansible/README.md) for the dynamic-inventory details
+(`containers.docker.yml`).
 
 ## Troubleshooting
 
 ### SSH connection refused
 
 - Ensure containers are running: `docker ps`
-- Check if SSH is running: `docker logs asu-head-01-1`
+- Check if SSH is running: `docker logs lci-head-01-1`
 - Re-run SSH key setup: `just copy-ssh-key`
 
 ### Permission denied
@@ -294,11 +365,11 @@ just ansible-run
 These virtual clusters are **ephemeral** - changes do not persist across
 rebuilds:
 
-| Action                | Configs (/etc) | Data (/var) | Installed Software (/usr) |
-| --------------------- | -------------- | ----------- | ------------------------- |
-| Container restart     | Preserved      | Preserved   | Preserved                 |
-| `just down` / `up-ms` | **Lost**       | **Lost**    | **Lost**                  |
-| Image rebuild         | **Lost**       | **Lost**    | **Lost**                  |
+| Action                  | Configs (/etc) | Data (/var) | Installed Software (/usr) |
+| ----------------------- | -------------- | ----------- | ------------------------- |
+| Container restart       | Preserved      | Preserved   | Preserved                 |
+| `just down` / `just up` | **Lost**       | **Lost**    | **Lost**                  |
+| Image rebuild           | **Lost**       | **Lost**    | **Lost**                  |
 
 ### For Persistent Changes
 
@@ -315,10 +386,10 @@ If you need to test changes before baking them into images:
 
 ```bash
 # Install software temporarily (lost on container recreation)
-docker exec -it asu-head-01-1 dnf -y install <package>
+docker exec -it lci-head-01-1 dnf -y install <package>
 
 # Make config changes (persists until volume is removed)
-docker exec -it asu-head-01-1 vi /etc/some/config
+docker exec -it lci-head-01-1 vi /etc/some/config
 ```
 
 ### Using Ansible for Configuration

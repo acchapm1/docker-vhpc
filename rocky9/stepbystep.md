@@ -19,15 +19,15 @@ just status
 ```
 
 You should see four containers (names follow `{PREFIX}-{role}-{CC}-{N}`, and the
-hostname matches the container name exactly; defaults use prefix `asu` and
+hostname matches the container name exactly; defaults use prefix `lci` and
 cluster number `01`):
 
 | Container = Hostname | IP        |
 | -------------------- | --------- |
-| `asu-head-01-1`      | 10.0.10.2 |
-| `asu-compute-01-1`   | 10.0.10.3 |
-| `asu-compute-01-2`   | 10.0.10.4 |
-| `asu-storage-01-1`   | 10.0.10.5 |
+| `lci-head-01-1`      | 10.0.10.2 |
+| `lci-compute-01-1`   | 10.0.10.3 |
+| `lci-compute-01-2`   | 10.0.10.4 |
+| `lci-storage-01-1`   | 10.0.10.5 |
 
 ## SSH into the head node
 
@@ -51,9 +51,9 @@ sudo -i
 other nodes. From inside the head node (as root):
 
 ```bash
-ssh root@asu-compute-01-1
-ssh root@asu-compute-01-2
-ssh root@asu-storage-01-1
+ssh root@lci-compute-01-1
+ssh root@lci-compute-01-2
+ssh root@lci-storage-01-1
 ```
 
 No password needed.
