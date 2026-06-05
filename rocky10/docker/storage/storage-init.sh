@@ -81,12 +81,29 @@ if [ "${DISABLE_NFS_AUTOSTART:-0}" = "1" ]; then
   exec tail -f /dev/null
 fi
 
-# NFS is NOT served on Rocky 10: nfs-ganesha is not packaged for EL10 (the
-# CentOS Storage SIG has no EL10 release), and the in-kernel NFS server is
-# unavailable under Docker Desktop (no nfsd module). The shared-NFS `/scratch`
-# Intro template therefore lives in the rocky9/ variant. Here, the storage node
-# just stays up (sshd via supervisord); any extra drives were set up above. The
-# Inter template always sets DISABLE_NFS_AUTOSTART=1 and never reaches this path.
-echo "Rocky 10 storage node: NFS server not available on EL10 (use rocky9/ for"
-echo "the NFS /scratch Intro template). Node is up; sshd is served by supervisord."
-exec tail -f /dev/null
+SIZE_GB=${STORAGE_SIZE_GB:-10}
+BACKING=/data/storage.img
+MOUNTPOINT=/export
+
+# Back /export with a loop-mounted ext4 image on the /data volume so the export
+# behaves like a real, fixed-size filesystem and survives restarts.
+mkdir -p /data
+if [ ! -f "$BACKING" ]; then
+  fallocate -l ${SIZE_GB}G "$BACKING"
+  mkfs.ext4 -F "$BACKING"
+fi
+
+mkdir -p "$MOUNTPOINT"
+if ! mountpoint -q "$MOUNTPOINT"; then
+  LOOPDEV=$(losetup -f --show "$BACKING")
+  mount "$LOOPDEV" "$MOUNTPOINT" || { echo "mount of $BACKING failed"; exit 1; }
+fi
+
+# Serve /export over NFSv4 with userspace nfs-ganesha. The in-kernel NFS server
+# is unavailable here (the Docker Desktop LinuxKit kernel has no nfsd module),
+# so ganesha is the only path that actually listens on 2049. Clients mount with
+# `-o nfsvers=4` (see the mount-scratch Ansible play). Run in the foreground so
+# this stays the live process under supervisord.
+mkdir -p /var/run/ganesha /var/log
+echo "Starting nfs-ganesha (NFSv4) exporting $MOUNTPOINT"
+exec /usr/bin/ganesha.nfsd -F -L /var/log/ganesha.log -f /etc/ganesha/ganesha.conf
