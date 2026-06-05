@@ -1,0 +1,9 @@
+[project]
+name = "lci-ansible"
+version = "0.1.0"
+description = "Pinned Python 3.12 env for running the LCI cluster Ansible. Avoids the macOS fork() crash on Homebrew's Python 3.14 (the docker SDK is multithreaded; Ansible hardcodes the 'fork' start method)."
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "ansible>=14.0.0",
+    "requests>=2.34.2",
+]

@@ -4,9 +4,10 @@ Virtual HPC cluster using Rocky Linux 10.1 with Docker containerization.
 
 ## Features
 
-- **Rocky Linux 10.1** base image across all nodes
-- **`just inter` template** - one command stands up a 4-storage-node cluster with
-  raw drives for parallel-filesystem labs
+- **Rocky Linux 10.1** on the head and compute nodes (the `just intro` storage
+  node runs Rocky 9.7 — see the note under Templates)
+- **One-command templates** - `just intro` and `just inter` stand up a fully
+  configured, ready-to-use cluster in a single step
 - **Multi-stage Docker builds** for optimized image sizes
 - **Scalable architecture** - 1 head node, up to 10 compute nodes, up to 10
   storage nodes
@@ -18,11 +19,35 @@ Virtual HPC cluster using Rocky Linux 10.1 with Docker containerization.
 
 ## Templates
 
-> **Note:** Rocky 10 ships the **`just inter`** template only. The **`just
-> intro`** (shared NFS `/scratch`) template is **not available on Rocky 10** —
-> `nfs-ganesha` is not packaged for EL10. Use the [`rocky9/`](../rocky9/) variant
-> for the NFS-scratch workflow. See [INTRO.md](INTRO.md) for the full
-> explanation and workarounds.
+Two predefined cluster templates cover the common lab scenarios. Each is a
+single command that does everything — generate config, build, start, wire
+passwordless SSH, provision storage, and print status.
+
+### `just intro` — shared NFS `/scratch`
+
+1 head + 2 compute + 1 storage. The storage node serves its `/export` over NFSv4
+(userspace nfs-ganesha), auto-mounted as **`/scratch`** on the head and both
+compute nodes. The mount is persistent — it re-mounts after `docker restart`.
+
+```bash
+cd rocky10
+just intro
+
+# Verify the shared scratch (write on one node, read on another):
+docker exec lci-head-01-1     bash -lc 'echo hello > /scratch/test.txt'
+docker exec lci-compute-01-1  cat /scratch/test.txt   # -> hello
+```
+
+> **Note — storage node runs Rocky 9.7 (revisit later).** `just intro` needs a
+> userspace NFS server (nfs-ganesha), and the EL10 build (ganesha 9) is not
+> stable in this container setup. So the storage node image is pinned to
+> `rockylinux:9.7` (ganesha 5, proven) while head/compute stay Rocky 10.1 — a
+> harmless mixed-OS setup. Making the storage node fully Rocky 10 with native
+> ganesha 9 is deferred; see [INTRO.md](INTRO.md) for what's known and the
+> remaining work.
+
+The `/scratch` mount is provisioned with Ansible from a self-contained **uv**
+environment — see Prerequisites.
 
 ### `just inter` — raw drives for parallel filesystems
 
@@ -54,11 +79,9 @@ cd rocky10
 # Show all commands
 just --list
 
-# Inter template (raw PFS drives) — one command, fully provisioned:
-just inter
-
-# Or the base cluster (1 head, 2 compute, 1 storage):
-just setup
+# Predefined templates (recommended) — one command, fully provisioned:
+just intro      # 1 head, 2 compute, 1 storage + shared NFS /scratch
+just inter      # 1 head, 2 compute, 4 storage with raw vdb/vdc drives (PFS labs)
 
 # SSH into the head node (rocky user, password: Sp@rky26)
 just ssh rocky
@@ -69,8 +92,8 @@ just down
 
 ## Documentation
 
-- [INTRO.md](INTRO.md) - why `just intro` (NFS /scratch) is rocky9-only, plus
-  workarounds; and `just inter` usage on Rocky 10
+- [INTRO.md](INTRO.md) - why the `just intro` storage node runs Rocky 9.7, and
+  the path to native ganesha 9 on Rocky 10 (future work)
 - [HOWTO.md](HOWTO.md) - Quick start guide and troubleshooting
 - [CONFIGURATION.md](CONFIGURATION.md) - Centralized configuration guide
 - [NAMING.md](NAMING.md) - Container naming conventions
@@ -97,10 +120,11 @@ number and prefix.
 
 - Docker and Docker Compose
 - Just (task runner): `brew install just`
+- **uv** (for the `just intro` Ansible step): https://docs.astral.sh/uv/ —
+  `just intro` provisions a pinned Python 3.12 Ansible environment automatically
+  (`just ansible-setup`); no system Ansible required. (`just inter` does not need
+  uv.)
 - An SSH key pair (`~/.ssh/id_*`) for cluster access — see [HOWTO.md](HOWTO.md).
-
-(No uv/Ansible needed on Rocky 10 — that's only used by the rocky9 Intro
-template.)
 
 ## License
 
